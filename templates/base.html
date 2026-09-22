@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}NutriTrack{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+{% if g.user %}
+<nav class="navbar">
+  <div class="navbar-inner">
+    <a class="brand" href="{{ url_for('dashboard') }}">
+      <span class="brand-mark">&#127807;</span> NutriTrack
+    </a>
+    <div class="nav-links">
+      <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
+      <a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' }}">Profile</a>
+      <a href="#" class="disabled" title="Coming in Stage 3">Add Meal</a>
+      <a href="#" class="disabled" title="Coming in Stage 4">Suggestions</a>
+    </div>
+    <div class="nav-user">
+      <span class="nav-username">{{ g.user['name'] }}</span>
+      <a href="{{ url_for('logout') }}" class="btn btn-ghost btn-sm">Logout</a>
+    </div>
+  </div>
+</nav>
+{% endif %}
+
+<main class="page {{ 'page-center' if not g.user }}">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="flash-stack">
+        {% for category, message in messages %}
+          <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+</body>
+</html>

@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard · NutriTrack{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Hi, {{ user['name'] }} 👋</h1>
+    <p class="page-subtitle">{{ today.strftime('%A, %d %B %Y') }}</p>
+  </div>
+  <a href="#" class="btn btn-primary disabled-btn" title="Meal logging arrives in Stage 3">+ Add Meal</a>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-value">{{ totals['calories'] | round(0) | int }}</div>
+    <div class="stat-label">Calories (kcal)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ totals['protein'] | round(1) }}</div>
+    <div class="stat-label">Protein (g)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ totals['carbs'] | round(1) }}</div>
+    <div class="stat-label">Carbohydrates (g)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ totals['fat'] | round(1) }}</div>
+    <div class="stat-label">Fat (g)</div>
+  </div>
+</div>
+
+<h2 class="section-title">Today's meals</h2>
+<div class="meals-grid">
+  {% for meal_type in meal_types %}
+  <div class="meal-card">
+    <div class="meal-card-header">
+      <span class="meal-name">{{ meal_type }}</span>
+      {% if meal_type in logged_meal_types %}
+        <span class="meal-status logged">Logged</span>
+      {% else %}
+        <span class="meal-status pending">Not logged</span>
+      {% endif %}
+    </div>
+    <a href="#" class="btn btn-ghost btn-sm" title="Meal logging arrives in Stage 3">
+      {{ 'View / Edit' if meal_type in logged_meal_types else 'Log ' + meal_type }}
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
