@@ -414,6 +414,22 @@ def dashboard():
     for row in todays_meal_rows:
         logged_meals.setdefault(row["meal_type"], row["id"])
 
+    # Per-meal-type nutrition totals for today's dashboard cards
+    meal_nutrition_rows = db.execute(
+        """SELECT m.meal_type,
+             COALESCE(SUM(f.calories * mi.quantity), 0) AS calories,
+             COALESCE(SUM(f.protein * mi.quantity), 0)  AS protein,
+             COALESCE(SUM(f.carbs * mi.quantity), 0)    AS carbs,
+             COALESCE(SUM(f.fat * mi.quantity), 0)      AS fat
+           FROM meals m
+           JOIN meal_items mi ON mi.meal_id = m.id
+           JOIN foods f ON f.id = mi.food_id
+           WHERE m.user_id = ? AND m.logged_date = ?
+           GROUP BY m.meal_type""",
+        (user_id, today.isoformat()),
+    ).fetchall()
+    meal_nutrition = {row["meal_type"]: dict(row) for row in meal_nutrition_rows}
+
     return render_template(
         "dashboard.html",
         user=g.user,
@@ -422,6 +438,7 @@ def dashboard():
         meal_types=MEAL_TYPES,
         logged_meal_types=set(logged_meals.keys()),
         logged_meals=logged_meals,
+        meal_nutrition=meal_nutrition,
     )
 
 

@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h1>Meal suggestions</h1>
-    <p class="page-subtitle">Curated recipes matching your {{ dietary_preference }} preference and allergies.</p>
+    <p class="page-subtitle">Recipes matching your {{ dietary_preference }} preference and allergies.</p>
   </div>
 </div>
 
@@ -33,16 +33,15 @@
 
     <div class="recipe-nutrition">
       <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['calories'] | round(0) | int }}</span><span class="recipe-nutrition-label">kcal</span></div>
-      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['protein'] | round(1) }}g</span><span class="recipe-nutrition-label">Protein</span></div>
-      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['carbs'] | round(1) }}g</span><span class="recipe-nutrition-label">Carbs</span></div>
-      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['fat'] | round(1) }}g</span><span class="recipe-nutrition-label">Fat</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['protein'] | round(1) }} g</span><span class="recipe-nutrition-label">Protein</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['carbs'] | round(1) }} g</span><span class="recipe-nutrition-label">Carbs</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['fat'] | round(1) }} g</span><span class="recipe-nutrition-label">Fat</span></div>
     </div>
   </div>
   {% endfor %}
 </div>
 {% else %}
 <div class="card placeholder-card">
-  <span class="placeholder-icon">🍽️</span>
   <h2>No matching recipes</h2>
   <p>
     Nothing fits your {{ dietary_preference }} preference and allergy list{{ ' for ' + selected_type if selected_type }} right now.

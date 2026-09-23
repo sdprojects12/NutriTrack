@@ -10,7 +10,7 @@
 
 <div class="card">
   <form method="post" id="add-meal-form">
-    <div class="field-group" style="max-width: 260px;">
+    <div class="field-group field-group-sm">
       <label for="meal_type">Meal type</label>
       <select id="meal_type" name="meal_type" required>
         {% for mt in meal_types %}
@@ -44,17 +44,17 @@
     </table>
 
     <h2 class="section-title">Nutrition summary</h2>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-value" id="sum-calories">0</div><div class="stat-label">Calories (kcal)</div></div>
-      <div class="stat-card"><div class="stat-value" id="sum-protein">0</div><div class="stat-label">Protein (g)</div></div>
-      <div class="stat-card"><div class="stat-value" id="sum-carbs">0</div><div class="stat-label">Carbohydrates (g)</div></div>
-      <div class="stat-card"><div class="stat-value" id="sum-fat">0</div><div class="stat-label">Fat (g)</div></div>
-      <div class="stat-card"><div class="stat-value" id="sum-fiber">0</div><div class="stat-label">Fiber (g)</div></div>
+    <div class="nutrition-bar">
+      <span><strong id="sum-calories">0</strong> kcal</span>
+      <span><strong id="sum-protein">0</strong> g protein</span>
+      <span><strong id="sum-carbs">0</strong> g carbs</span>
+      <span><strong id="sum-fat">0</strong> g fat</span>
+      <span><strong id="sum-fiber">0</strong> g fiber</span>
     </div>
 
     <div id="hidden-inputs"></div>
 
-    <div style="display:flex; gap:12px; margin-top:28px;">
+    <div class="form-actions">
       <button type="submit" id="save-meal-btn" class="btn btn-primary" disabled>Save Meal</button>
       <a href="{{ url_for('dashboard') }}" class="btn btn-ghost">Cancel</a>
     </div>
@@ -82,6 +82,11 @@
     return d.innerHTML;
   }
 
+  function updateButtonState() {
+    var anyValid = selected.length > 0 && selected.every(function (item) { return item.quantity > 0; });
+    saveBtn.disabled = !anyValid;
+  }
+
   function renderResults(foods) {
     resultsEl.innerHTML = '';
     if (!foods.length) {
@@ -97,7 +102,7 @@
       info.innerHTML =
         '<span class="search-result-name">' + escapeHtml(f.name) + '</span>' +
         '<span class="search-result-meta">' + escapeHtml(f.serving_size || 'per serving') +
-        ' · ' + Math.round(f.calories) + ' kcal</span>';
+        ' \u00b7 ' + Math.round(f.calories) + ' kcal</span>';
       row.appendChild(info);
 
       var btn = document.createElement('button');
@@ -133,7 +138,6 @@
   function renderSelected() {
     bodyEl.innerHTML = '';
 
-    var anyValid = selected.length > 0 && selected.every(function (item) { return item.quantity > 0; });
     if (!selected.length) {
       tableEl.style.display = 'none';
       emptyEl.style.display = 'block';
@@ -141,7 +145,6 @@
       tableEl.style.display = 'table';
       emptyEl.style.display = 'none';
     }
-    saveBtn.disabled = !anyValid;
 
     selected.forEach(function (item) {
       var tr = document.createElement('tr');
@@ -158,18 +161,27 @@
       qtyInput.step = '0.25';
       qtyInput.value = item.quantity;
       qtyInput.className = 'qty-input';
-      qtyInput.addEventListener('input', function () {
-        var v = parseFloat(qtyInput.value);
-        item.quantity = (isNaN(v) || v <= 0) ? 0 : v;
-        renderSelected();
-      });
       tdQty.appendChild(qtyInput);
       tr.appendChild(tdQty);
 
+      var nutritionCells = {};
       ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (key) {
         var td = document.createElement('td');
         td.textContent = fmt(item[key] * item.quantity);
+        nutritionCells[key] = td;
         tr.appendChild(td);
+      });
+
+      // Update nutrition cells in place instead of rebuilding the DOM,
+      // so the quantity input keeps focus while the user types.
+      qtyInput.addEventListener('input', function () {
+        var v = parseFloat(qtyInput.value);
+        item.quantity = (isNaN(v) || v <= 0) ? 0 : v;
+        ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (key) {
+          nutritionCells[key].textContent = fmt(item[key] * item.quantity);
+        });
+        updateSummary();
+        updateButtonState();
       });
 
       var tdRemove = document.createElement('td');
@@ -185,6 +197,7 @@
     });
 
     updateSummary();
+    updateButtonState();
   }
 
   function updateSummary() {

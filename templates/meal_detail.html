@@ -8,23 +8,21 @@
   </div>
   <form method="post" action="{{ url_for('delete_meal', meal_id=meal['id']) }}"
         onsubmit="return confirm('Delete this meal? This cannot be undone.');">
-    <button type="submit" class="btn btn-ghost" style="color: var(--danger) !important; border-color: #f4c8c4;">
-      Delete meal
-    </button>
+    <button type="submit" class="btn btn-danger btn-sm">Delete meal</button>
   </form>
 </div>
 
-<div class="card" style="margin-bottom: 24px;">
+<div class="card">
   <table class="selected-foods-table">
     <thead>
       <tr>
         <th>Food</th>
         <th>Quantity</th>
-        <th>Calories</th>
-        <th>Protein</th>
-        <th>Carbs</th>
-        <th>Fat</th>
-        <th>Fiber</th>
+        <th>Calories (kcal)</th>
+        <th>Protein (g)</th>
+        <th>Carbs (g)</th>
+        <th>Fat (g)</th>
+        <th>Fiber (g)</th>
       </tr>
     </thead>
     <tbody>
@@ -44,13 +42,13 @@
 </div>
 
 <h2 class="section-title">Meal totals</h2>
-<div class="stats-grid">
-  <div class="stat-card"><div class="stat-value">{{ totals['calories'] | round(0) | int }}</div><div class="stat-label">Calories (kcal)</div></div>
-  <div class="stat-card"><div class="stat-value">{{ totals['protein'] | round(1) }}</div><div class="stat-label">Protein (g)</div></div>
-  <div class="stat-card"><div class="stat-value">{{ totals['carbs'] | round(1) }}</div><div class="stat-label">Carbohydrates (g)</div></div>
-  <div class="stat-card"><div class="stat-value">{{ totals['fat'] | round(1) }}</div><div class="stat-label">Fat (g)</div></div>
-  <div class="stat-card"><div class="stat-value">{{ totals['fiber'] | round(1) }}</div><div class="stat-label">Fiber (g)</div></div>
+<div class="nutrition-bar">
+  <span><strong>{{ totals['calories'] | round(0) | int }}</strong> kcal</span>
+  <span><strong>{{ totals['protein'] | round(1) }}</strong> g protein</span>
+  <span><strong>{{ totals['carbs'] | round(1) }}</strong> g carbs</span>
+  <span><strong>{{ totals['fat'] | round(1) }}</strong> g fat</span>
+  <span><strong>{{ totals['fiber'] | round(1) }}</strong> g fiber</span>
 </div>
 
-<a href="{{ url_for('dashboard') }}" class="btn btn-ghost" style="margin-top: 24px;">← Back to dashboard</a>
+<a href="{{ url_for('dashboard') }}" class="back-link">&larr; Back to dashboard</a>
 {% endblock %}

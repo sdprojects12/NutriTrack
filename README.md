@@ -1,25 +1,39 @@
 # NutriTrack
 
-An Indian-food nutrition tracking web app. College mini-project prototype
-built with Python, Flask, SQLite, Jinja2 and vanilla HTML/CSS/JS.
+An Indian-food nutrition tracking web app. College mini-project built with
+Python, Flask, SQLite, Jinja2 and vanilla HTML/CSS/JS.
 
 ## Tech stack
+
 - Python 3 + Flask
 - SQLite (via Python's built-in `sqlite3` module)
 - Jinja2 templates
 - Werkzeug password hashing + Flask sessions for auth
 - Plain HTML/CSS/JS (no React/Node)
 
-## Project status: Stage 1 of 4
+## Project status: Complete
+
+All four development stages have been implemented:
+
 - [x] **Stage 1** — Project setup, SQLite schema, seed food data, Flask app, authentication
-- [ ] Stage 2 — Profile + Dashboard
-- [ ] Stage 3 — Meal logging + nutrition calculation
-- [ ] Stage 4 — Meal suggestions + UI polish
+- [x] **Stage 2** — User profiles (age, height, weight, dietary preference, goal, allergies) + dashboard
+- [x] **Stage 3** — Meal logging with live food search, quantity management and nutrition calculation
+- [x] **Stage 4** — Meal suggestions (diet- and allergy-aware filtering) + UI/UX polish
+
+## Implemented features
+
+- **Authentication** — sign up, log in, log out (passwords hashed with Werkzeug, never stored in plaintext)
+- **Profile management** — age, height, weight, dietary preference (Vegetarian / Non-Vegetarian / Vegan / Eggetarian), nutrition goal, allergy selection with "No Known Allergies" sentinel
+- **Forced profile completion** — new users must complete their profile before accessing the app
+- **Dashboard** — daily nutrition totals, per-meal nutrition breakdown (calories, protein, carbs, fat), meal status cards with direct links to view or log meals
+- **Meal logging** — live food search against 1,014 INDB foods, multi-item meal builder with per-serving quantity control, real-time nutrition summary
+- **Meal detail & deletion** — itemised food breakdown with calculated nutrition per item and meal totals
+- **Meal suggestions** — recipe recommendations filtered by dietary preference (diet compatibility hierarchy) and allergy exclusions, with per-meal-type filter pills
 
 ## Setup
 
 ```bash
-cd nutritrack
+cd NutriTrack
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
@@ -33,89 +47,74 @@ flask run
 
 Then open **http://127.0.0.1:5000** in your browser.
 
-## What's working right now (Stage 1)
-- Sign up with name, email, password (password is hashed with Werkzeug, never stored in plaintext)
-- Log in / log out with Flask sessions
-- A logged-in-only placeholder dashboard, proving the auth wall works
-- Full SQLite schema for all 8 tables (`users`, `profiles`, `allergies`,
-  `user_allergies`, `foods`, `meals`, `meal_items`, `recipes`)
-- `foods` table seeded with 32 common Indian dishes
-- `recipes` table seeded with 15 recipes for later meal suggestions
-- `allergies` table seeded with 8 common allergens
+## Nutrition data source: INDB
 
-## Nutrition data source: INDB (real data, now integrated)
-`foods` is now seeded from the actual **Indian Nutrient Databank (INDB)**
-export the user supplied: `data/Anuvaad_INDB_2024_11.xlsx`
-(https://www.anuvaad.org.in/indian-nutrient-databank/). All 1,014 rows in
-that file were imported.
+`foods` is seeded from the **Indian Nutrient Databank (INDB)** export:
+`data/Anuvaad_INDB_2024_11.xlsx`
+(https://www.anuvaad.org.in/indian-nutrient-databank/). All 1,014 rows
+were imported.
 
 **Import script:** `scripts/import_indb.py` — read its module docstring
 for the full column mapping. Short version:
 
-| Our column      | INDB source column(s) |
-|---|---|
-| `name`            | `food_name` |
-| `serving_size`     | `servings_unit` (as "1 &lt;unit&gt;"), or `"100 g"` when INDB gives no serving unit |
-| `calories`         | `unit_serving_energy_kcal` if available, else `energy_kcal` (per 100g) |
-| `protein`           | `unit_serving_protein_g` if available, else `protein_g` |
-| `carbs`             | `unit_serving_carb_g` if available, else `carb_g` |
-| `fat`               | `unit_serving_fat_g` if available, else `fat_g` |
-| `fiber`             | `unit_serving_fibre_g` if available, else `fibre_g` |
+| Our column       | INDB source column(s)                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------- |
+| `name`           | `food_name`                                                                                   |
+| `serving_size`   | `servings_unit` (as "1 &lt;unit&gt;"), or `"100 g"` when INDB gives no serving unit           |
+| `calories`       | `unit_serving_energy_kcal` if available, else `energy_kcal` (per 100 g)                       |
+| `protein`        | `unit_serving_protein_g` if available, else `protein_g`                                       |
+| `carbs`          | `unit_serving_carb_g` if available, else `carb_g`                                             |
+| `fat`            | `unit_serving_fat_g` if available, else `fat_g`                                               |
+| `fiber`          | `unit_serving_fibre_g` if available, else `fibre_g`                                           |
 
-Per-serving values are preferred whenever INDB provides them, per the
-project brief — since users log meals by serving, not by 100g.
+Per-serving values are preferred whenever INDB provides them, since users
+log meals by serving, not by 100 g.
 
-**`category`, `dietary_type` and `allergens` are NOT in the INDB file at
-all** — INDB is a pure nutrition table with no tagging columns. These
-three fields are derived by keyword-matching each food's name (e.g. a
-name containing "chicken" → Non-Vegetarian; a name containing "paneer" →
-Dairy allergen). This is documented in detail, including its limitations,
-at the top of `scripts/import_indb.py`. **It is a name-only heuristic, not
-verified ingredient data** — a dish whose name doesn't mention a
-dairy/nut/gluten word will be under-tagged, so this should not be trusted
-for a genuinely severe allergy without manual verification.
+**`category`, `dietary_type` and `allergens` are NOT in the INDB file** —
+INDB is a pure nutrition table with no tagging columns. These fields are
+derived by keyword-matching each food's name (e.g. "chicken" →
+Non-Vegetarian; "paneer" → Dairy allergen). This is a name-only heuristic,
+not verified ingredient data — see `scripts/import_indb.py` for full
+documentation of its limitations.
 
-### ⚠️ Known data quality issue in the source file
-While importing, we found that roughly **128 of the 1,014 rows** (~13%)
-have implausible `fat`/`carb` figures relative to what the dish actually
-is — e.g. INDB lists **Poori** (a deep-fried bread) at 77.6 g fat / 8.2 g
-carb per 100 g, when real-world figures are closer to ~15-18 g fat and
-~40 g carb per 100 g for the same dish. The same pattern shows up in
-several kofta curries and `Paneer pulao`. The reported calorie figure is
-*internally consistent* with the reported macros in these rows (so a
-simple calories-vs-macros sanity check doesn't catch it), which suggests
-the error is in INDB's own fat/carb computation for a subset of recipes,
-not a transcription mistake. We imported these rows as-is rather than
-silently guessing "corrected" values — flagging it here instead so it's
-not a surprise during a demo. If this comes up, it's worth mentioning as
-a known limitation of the source dataset, or spot-checking/excluding the
-specific dishes you plan to demo with beforehand.
+### Known data quality issue in the source file
+
+Roughly **128 of 1,014 rows** (~13%) have implausible fat/carb figures
+relative to what the dish actually is — e.g. INDB lists Poori at 77.6 g
+fat / 8.2 g carb per 100 g, when real-world figures are closer to ~15-18 g
+fat and ~40 g carb. The calorie figure is internally consistent with the
+reported macros, suggesting the error is in INDB's own computation for
+that subset. These rows were imported as-is rather than silently corrected.
 
 ## Project structure
+
 ```
-nutritrack/
-├── app.py                  # Flask app, routes, auth
-├── schema.sql               # SQLite schema (all 8 tables)
-├── seed_data.py              # Seeds allergies / foods (via INDB import) / recipes
+NutriTrack/
+├── app.py                       # Flask app, all routes, auth
+├── schema.sql                   # SQLite schema (8 tables)
+├── seed_data.py                 # Seeds allergies, foods (INDB) and recipes
+├── requirements.txt             # Flask, Werkzeug, openpyxl
 ├── scripts/
-│   └── import_indb.py         # INDB -> foods table mapping + heuristics (documented)
+│   └── import_indb.py           # INDB → foods table mapping + heuristics
 ├── data/
-│   └── Anuvaad_INDB_2024_11.xlsx  # The real INDB export (1,014 rows)
-├── requirements.txt
-├── nutritrack.db             # SQLite database (generated by flask init-db/seed-db)
+│   └── Anuvaad_INDB_2024_11.xlsx
 ├── templates/
-│   ├── base.html             # Shared layout, nav, flash messages
-│   ├── login.html
-│   ├── signup.html
-│   └── dashboard.html        # Placeholder — full dashboard in Stage 2
-└── static/
-    └── css/
-        └── style.css         # Light theme, green/teal accents
+│   ├── base.html                # Shared layout, navbar, flash messages
+│   ├── login.html               # Login form
+│   ├── signup.html              # Registration form
+│   ├── dashboard.html           # Daily summary + per-meal nutrition cards
+│   ├── profile.html             # Profile setup and editing
+│   ├── add_meal.html            # Meal builder with food search
+│   ├── meal_detail.html         # Itemised meal view + delete
+│   └── suggestions.html         # Diet- and allergy-filtered recipes
+├── static/
+│   └── css/
+│       └── style.css            # Design system (green/teal, Inter + Poppins)
+└── nutritrack.db                # SQLite database (created by init-db/seed-db)
 ```
 
-## Future scope (not implemented in this prototype)
-These are explicitly out of scope for now and are left as future
-enhancements:
+## Future scope (not implemented)
+
 - Gemini / AI-powered meal recommendations
 - Natural-language meal logging ("I had 2 idlis and a chai")
 - AI-generated diet plans
@@ -123,3 +122,4 @@ enhancements:
 - Google OAuth login
 - Barcode scanning for packaged foods
 - Advanced analytics / trends over time
+- Calorie and macro targets based on profile goals

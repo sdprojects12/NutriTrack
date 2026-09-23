@@ -3,28 +3,28 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h1>Hi, {{ user['name'] }} 👋</h1>
+    <h1>Hi, {{ user['name'] }}</h1>
     <p class="page-subtitle">{{ today.strftime('%A, %d %B %Y') }}</p>
   </div>
-  <a href="{{ url_for('add_meal') }}" class="btn btn-primary">+ Add Meal</a>
+  <a href="{{ url_for('add_meal') }}" class="btn btn-primary">Add Meal</a>
 </div>
 
-<div class="stats-grid">
-  <div class="stat-card">
-    <div class="stat-value">{{ totals['calories'] | round(0) | int }}</div>
-    <div class="stat-label">Calories (kcal)</div>
+<div class="daily-summary">
+  <div class="daily-summary-item">
+    <span class="daily-summary-value">{{ totals['calories'] | round(0) | int }}</span>
+    <span class="daily-summary-label">Calories (kcal)</span>
   </div>
-  <div class="stat-card">
-    <div class="stat-value">{{ totals['protein'] | round(1) }}</div>
-    <div class="stat-label">Protein (g)</div>
+  <div class="daily-summary-item">
+    <span class="daily-summary-value">{{ totals['protein'] | round(1) }}</span>
+    <span class="daily-summary-label">Protein (g)</span>
   </div>
-  <div class="stat-card">
-    <div class="stat-value">{{ totals['carbs'] | round(1) }}</div>
-    <div class="stat-label">Carbohydrates (g)</div>
+  <div class="daily-summary-item">
+    <span class="daily-summary-value">{{ totals['carbs'] | round(1) }}</span>
+    <span class="daily-summary-label">Carbs (g)</span>
   </div>
-  <div class="stat-card">
-    <div class="stat-value">{{ totals['fat'] | round(1) }}</div>
-    <div class="stat-label">Fat (g)</div>
+  <div class="daily-summary-item">
+    <span class="daily-summary-value">{{ totals['fat'] | round(1) }}</span>
+    <span class="daily-summary-label">Fat (g)</span>
   </div>
 </div>
 
@@ -40,6 +40,14 @@
         <span class="meal-status pending">Not logged</span>
       {% endif %}
     </div>
+    {% if meal_type in logged_meal_types and meal_type in meal_nutrition %}
+      <div class="meal-card-nutrition">
+        <span>{{ meal_nutrition[meal_type]['calories'] | round(0) | int }} kcal</span>
+        <span>{{ meal_nutrition[meal_type]['protein'] | round(1) }} g protein</span>
+        <span>{{ meal_nutrition[meal_type]['carbs'] | round(1) }} g carbs</span>
+        <span>{{ meal_nutrition[meal_type]['fat'] | round(1) }} g fat</span>
+      </div>
+    {% endif %}
     <a href="{{ url_for('view_meal', meal_id=logged_meals[meal_type]) if meal_type in logged_meal_types else url_for('add_meal', type=meal_type) }}"
        class="btn btn-ghost btn-sm">
       {{ 'View meal' if meal_type in logged_meal_types else 'Log ' + meal_type }}

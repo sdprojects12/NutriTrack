@@ -4,8 +4,8 @@
 <div class="page-header">
   <div>
     {% if onboarding %}
-      <h1>Let's get to know you 👋</h1>
-      <p class="page-subtitle">Complete your profile to personalize your NutriTrack experience.</p>
+      <h1>Set up your profile</h1>
+      <p class="page-subtitle">Complete your details to personalize your NutriTrack experience.</p>
     {% else %}
       <h1>Your profile</h1>
       <p class="page-subtitle">Keep this up to date for accurate meal suggestions.</p>
@@ -15,7 +15,7 @@
 
 <div class="card">
   <form method="post" class="form" id="profile-form">
-    <h2 class="section-title" style="margin-top:0;">Basic details</h2>
+    <h2 class="section-title">Basic details</h2>
     <div class="form-grid">
       <div class="field-group">
         <label for="age">Age</label>
@@ -65,9 +65,11 @@
       {% endfor %}
     </div>
 
-    <button type="submit" class="btn btn-primary" style="margin-top:28px;">
-      {{ 'Continue to NutriTrack →' if onboarding else 'Save changes' }}
-    </button>
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">
+        {{ 'Continue to NutriTrack \u2192' if onboarding else 'Save changes' }}
+      </button>
+    </div>
   </form>
 </div>
 
