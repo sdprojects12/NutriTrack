@@ -33,6 +33,16 @@ MEAL_TYPES = ["Breakfast", "Lunch", "Snack", "Dinner"]
 # new column or table — see is_profile_complete() below.
 NO_ALLERGY_LABEL = "No Known Allergies"
 
+# Diet compatibility: which recipe dietary_types a user on a given
+# preference can eat, from strictest (Vegan) to least strict
+# (Non-Vegetarian). A stricter recipe always suits a less strict eater.
+DIET_COMPATIBILITY = {
+    "Vegan": ["Vegan"],
+    "Vegetarian": ["Vegan", "Vegetarian"],
+    "Eggetarian": ["Vegan", "Vegetarian", "Eggetarian"],
+    "Non-Vegetarian": ["Vegan", "Vegetarian", "Eggetarian", "Non-Vegetarian"],
+}
+
 # Endpoints reachable by a logged-in user even with an incomplete profile.
 PROFILE_SETUP_EXEMPT_ENDPOINTS = {"profile", "logout", "static", None}
 
@@ -565,6 +575,66 @@ def delete_meal(meal_id):
         db.commit()
         flash("Meal deleted.", "success")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/suggestions")
+@login_required
+def suggestions():
+    db = get_db()
+    user_id = g.user["id"]
+
+    profile_row = db.execute(
+        "SELECT dietary_preference FROM profiles WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    dietary_preference = (
+        profile_row["dietary_preference"] if profile_row else "Vegetarian"
+    )
+    compatible_diets = DIET_COMPATIBILITY.get(dietary_preference, DIETARY_PREFERENCES)
+
+    user_allergy_names = {
+        row["name"]
+        for row in db.execute(
+            """SELECT a.name FROM user_allergies ua
+               JOIN allergies a ON a.id = ua.allergy_id
+               WHERE ua.user_id = ?""",
+            (user_id,),
+        ).fetchall()
+        if row["name"] != NO_ALLERGY_LABEL
+    }
+
+    selected_type = request.args.get("type", "")
+    if selected_type not in MEAL_TYPES:
+        selected_type = ""  # "" = show all meal types
+
+    placeholders = ",".join("?" * len(compatible_diets))
+    query = f"SELECT * FROM recipes WHERE dietary_type IN ({placeholders})"
+    params = list(compatible_diets)
+    if selected_type:
+        query += " AND meal_type = ?"
+        params.append(selected_type)
+    query += " ORDER BY meal_type, name"
+
+    candidates = db.execute(query, params).fetchall()
+
+    # Excluding allergens is a per-recipe set comparison, not a substring
+    # match, so it's done here in Python rather than with SQL LIKE (which
+    # would wrongly match e.g. "Egg" inside "Eggetarian").
+    recipes = []
+    for recipe in candidates:
+        recipe_allergens = {
+            a.strip() for a in (recipe["allergens"] or "").split(",") if a.strip()
+        }
+        if recipe_allergens & user_allergy_names:
+            continue
+        recipes.append(recipe)
+
+    return render_template(
+        "suggestions.html",
+        recipes=recipes,
+        meal_types=MEAL_TYPES,
+        selected_type=selected_type,
+        dietary_preference=dietary_preference,
+    )
 
 
 if __name__ == "__main__":

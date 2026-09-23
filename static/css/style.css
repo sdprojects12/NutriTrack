@@ -561,3 +561,126 @@ a:hover { color: var(--green-700); }
 @media (max-width: 768px) {
   .selected-foods-table { display: block; overflow-x: auto; }
 }
+
+/* ==========================================================================
+   Stage 4 — Meal suggestions (filter pills, recipe cards)
+   ========================================================================== */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+.filter-pill {
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-700);
+  background: var(--surface);
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.filter-pill:hover { border-color: var(--green-500); }
+
+.filter-pill.active {
+  background: var(--green-600);
+  border-color: var(--green-600);
+  color: #fff;
+}
+
+.recipe-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.recipe-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recipe-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.recipe-name {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 15.5px;
+  color: var(--ink-900);
+}
+
+.recipe-meal-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--green-50);
+  color: var(--green-700);
+}
+
+.recipe-description {
+  font-size: 13px;
+  color: var(--ink-500);
+  margin-bottom: 4px;
+}
+
+.recipe-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ink-500);
+  margin-top: 8px;
+}
+
+.recipe-text {
+  font-size: 13px;
+  color: var(--ink-700);
+  line-height: 1.5;
+}
+
+.recipe-nutrition {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.recipe-nutrition-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.recipe-nutrition-value {
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink-900);
+}
+
+.recipe-nutrition-label {
+  font-size: 10.5px;
+  color: var(--ink-500);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}

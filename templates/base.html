@@ -20,7 +20,7 @@
       <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
       <a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' }}">Profile</a>
       <a href="{{ url_for('add_meal') }}" class="{{ 'active' if request.endpoint in ('add_meal', 'view_meal') }}">Add Meal</a>
-      <a href="#" class="disabled" title="Coming in Stage 4">Suggestions</a>
+      <a href="{{ url_for('suggestions') }}" class="{{ 'active' if request.endpoint == 'suggestions' }}">Suggestions</a>
     </div>
     <div class="nav-user">
       <span class="nav-username">{{ g.user['name'] }}</span>

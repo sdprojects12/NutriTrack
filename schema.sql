@@ -79,6 +79,8 @@ CREATE TABLE recipes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
+    ingredients TEXT NOT NULL DEFAULT '',
+    instructions TEXT NOT NULL DEFAULT '',
     meal_type TEXT CHECK(meal_type IN ('Breakfast','Lunch','Snack','Dinner')) NOT NULL,
     dietary_type TEXT CHECK(dietary_type IN ('Vegetarian','Non-Vegetarian','Vegan','Eggetarian')) DEFAULT 'Vegetarian',
     allergens TEXT DEFAULT '',

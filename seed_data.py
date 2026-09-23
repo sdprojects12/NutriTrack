@@ -46,36 +46,68 @@ ALLERGIES = [
 ]
 
 # meal_type in ('Breakfast', 'Lunch', 'Snack', 'Dinner')
+# Each tuple: (name, description, ingredients, instructions, meal_type,
+#              dietary_type, allergens, calories, protein, carbs, fat)
 RECIPES = [
     ("Vegetable Poha", "Light, fluffy flattened rice tempered with mustard seeds, curry leaves and peanuts.",
+     "Poha (flattened rice), onion, green chilli, curry leaves, mustard seeds, turmeric, peanuts, lemon, coriander",
+     "Rinse poha until soft. Temper mustard seeds, curry leaves and peanuts in oil, add onion and turmeric, then fold in poha. Finish with lemon and coriander.",
      "Breakfast", "Vegan", "Peanut", 250, 4.5, 42.0, 7.0),
     ("Masala Dosa", "Crisp rice-and-lentil crepe filled with spiced potato masala, served with chutney and sambar.",
+     "Dosa batter (rice, urad dal), potato, onion, mustard seeds, turmeric, curry leaves, oil",
+     "Spread fermented batter thin on a hot griddle. Cook until crisp, add the spiced potato masala, fold and serve hot with chutney and sambar.",
      "Breakfast", "Vegan", "", 350, 6.5, 55.0, 12.0),
     ("Sprouted Moong Salad", "Fresh sprouted moong beans tossed with onion, tomato, lemon and chaat masala.",
+     "Sprouted moong beans, onion, tomato, lemon, chaat masala, coriander",
+     "Toss sprouted moong with chopped onion and tomato. Season with lemon juice and chaat masala, garnish with coriander.",
      "Breakfast", "Vegan", "", 150, 9.0, 22.0, 1.5),
     ("Rajma Chawal", "Classic kidney bean curry served over steamed rice.",
+     "Rajma (kidney beans), onion, tomato, ginger-garlic, rice, garam masala",
+     "Pressure-cook soaked rajma until soft. Simmer in an onion-tomato masala until thick. Serve over steamed rice.",
      "Lunch", "Vegan", "", 465, 15.0, 85.0, 6.4),
     ("Paneer Butter Masala with Roti", "Creamy tomato-based paneer curry served with whole wheat roti.",
+     "Paneer, tomato, butter, cream, cashew, whole wheat roti",
+     "Simmer a tomato-cashew gravy with butter and cream, add paneer cubes and warm through. Serve with roti.",
      "Lunch", "Vegetarian", "Dairy,Gluten", 480, 16.5, 30.0, 31.5),
     ("Chicken Curry with Rice", "Home-style chicken curry served with steamed rice.",
+     "Chicken, onion, tomato, ginger-garlic, curry spices, rice",
+     "Brown onions, add ginger-garlic and spices, then chicken and tomato. Simmer until cooked through and serve with steamed rice.",
      "Lunch", "Non-Vegetarian", "", 525, 30.3, 53.0, 20.4),
     ("Sambar Rice", "Steamed rice mixed with tangy lentil-and-vegetable sambar.",
+     "Toor dal, mixed vegetables, tamarind, sambar powder, rice",
+     "Cook toor dal with vegetables until soft, season with tamarind and sambar powder, then mix through steamed rice.",
      "Lunch", "Vegan", "", 350, 10.3, 67.0, 3.9),
     ("Roasted Makhana", "Lightly roasted fox nuts with a pinch of rock salt and spices.",
+     "Makhana (fox nuts), ghee or oil, rock salt, spices",
+     "Dry roast makhana in a pan with a little ghee until crisp, season with rock salt and spices.",
      "Snack", "Vegan", "", 130, 4.0, 22.0, 3.0),
     ("Peanut Chaat", "Boiled peanuts tossed with onion, tomato, chilli and lemon.",
+     "Peanuts, onion, tomato, green chilli, lemon, chaat masala",
+     "Boil peanuts until tender, toss with chopped onion, tomato and chilli, finish with lemon and chaat masala.",
      "Snack", "Vegan", "Peanut", 180, 7.5, 15.0, 10.0),
     ("Curd with Fruit", "Fresh curd topped with seasonal fruit.",
+     "Curd (yogurt), seasonal fruit, honey (optional)",
+     "Whisk chilled curd smooth, top with chopped seasonal fruit and a drizzle of honey if desired.",
      "Snack", "Vegetarian", "Dairy", 160, 7.5, 20.0, 6.3),
     ("Masala Chai with Biscuits", "Spiced milk tea served with two digestive biscuits.",
+     "Tea leaves, milk, ginger, cardamom, sugar, digestive biscuits",
+     "Simmer tea leaves with milk, ginger and cardamom. Strain, sweeten to taste, and serve with biscuits.",
      "Snack", "Vegetarian", "Dairy,Gluten", 220, 4.5, 30.0, 8.5),
     ("Dal Tadka with Chapati", "Yellow lentils tempered with cumin and garlic, served with chapati.",
+     "Toor/moong dal, cumin, garlic, tomato, ghee, chapati",
+     "Boil dal until soft. Prepare a cumin-garlic-tomato tempering in ghee and pour over the dal. Serve with chapati.",
      "Dinner", "Vegan", "Gluten", 310, 15.1, 53.0, 3.9),
     ("Palak Paneer with Roti", "Spinach curry with soft paneer cubes, served with roti.",
+     "Spinach, paneer, onion, tomato, ginger-garlic, roti",
+     "Blanch and puree spinach. Simmer with an onion-tomato base, add paneer cubes and warm through. Serve with roti.",
      "Dinner", "Vegetarian", "Dairy,Gluten", 384, 15.2, 28.0, 25.5),
     ("Egg Curry with Rice", "Boiled eggs simmered in a spiced onion-tomato gravy, served with rice.",
+     "Boiled eggs, onion, tomato, ginger-garlic, curry spices, rice",
+     "Prepare a spiced onion-tomato gravy, add halved boiled eggs and simmer briefly. Serve with steamed rice.",
      "Dinner", "Eggetarian", "Egg", 465, 18.3, 53.6, 19.4),
     ("Vegetable Pulao with Raita", "Fragrant rice cooked with mixed vegetables, served with cool cucumber raita.",
+     "Rice, mixed vegetables, whole spices, curd, cucumber",
+     "Sauté whole spices and vegetables, add rice and water and cook until fluffy. Serve with cucumber raita.",
      "Dinner", "Vegetarian", "Dairy", 460, 9.9, 65.0, 13.5),
 ]
 
@@ -100,9 +132,9 @@ def seed(db):
     db.execute("DELETE FROM recipes")
     db.executemany(
         """INSERT INTO recipes
-           (name, description, meal_type, dietary_type, allergens,
-            calories, protein, carbs, fat)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (name, description, ingredients, instructions, meal_type,
+            dietary_type, allergens, calories, protein, carbs, fat)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         RECIPES,
     )
 

@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+{% block title %}Suggestions · NutriTrack{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Meal suggestions</h1>
+    <p class="page-subtitle">Curated recipes matching your {{ dietary_preference }} preference and allergies.</p>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <a href="{{ url_for('suggestions') }}" class="filter-pill {{ 'active' if not selected_type }}">All</a>
+  {% for mt in meal_types %}
+  <a href="{{ url_for('suggestions', type=mt) }}" class="filter-pill {{ 'active' if selected_type == mt }}">{{ mt }}</a>
+  {% endfor %}
+</div>
+
+{% if recipes %}
+<div class="recipe-grid">
+  {% for recipe in recipes %}
+  <div class="recipe-card">
+    <div class="recipe-card-header">
+      <span class="recipe-name">{{ recipe['name'] }}</span>
+      <span class="recipe-meal-badge">{{ recipe['meal_type'] }}</span>
+    </div>
+    <p class="recipe-description">{{ recipe['description'] }}</p>
+
+    <p class="recipe-section-label">Ingredients</p>
+    <p class="recipe-text">{{ recipe['ingredients'] }}</p>
+
+    <p class="recipe-section-label">Preparation</p>
+    <p class="recipe-text">{{ recipe['instructions'] }}</p>
+
+    <div class="recipe-nutrition">
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['calories'] | round(0) | int }}</span><span class="recipe-nutrition-label">kcal</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['protein'] | round(1) }}g</span><span class="recipe-nutrition-label">Protein</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['carbs'] | round(1) }}g</span><span class="recipe-nutrition-label">Carbs</span></div>
+      <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['fat'] | round(1) }}g</span><span class="recipe-nutrition-label">Fat</span></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card placeholder-card">
+  <span class="placeholder-icon">🍽️</span>
+  <h2>No matching recipes</h2>
+  <p>
+    Nothing fits your {{ dietary_preference }} preference and allergy list{{ ' for ' + selected_type if selected_type }} right now.
+    Try a different meal type filter.
+  </p>
+</div>
+{% endif %}
+{% endblock %}
