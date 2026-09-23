@@ -6,7 +6,7 @@
     <h1>Hi, {{ user['name'] }} 👋</h1>
     <p class="page-subtitle">{{ today.strftime('%A, %d %B %Y') }}</p>
   </div>
-  <a href="#" class="btn btn-primary disabled-btn" title="Meal logging arrives in Stage 3">+ Add Meal</a>
+  <a href="{{ url_for('add_meal') }}" class="btn btn-primary">+ Add Meal</a>
 </div>
 
 <div class="stats-grid">
@@ -40,8 +40,9 @@
         <span class="meal-status pending">Not logged</span>
       {% endif %}
     </div>
-    <a href="#" class="btn btn-ghost btn-sm" title="Meal logging arrives in Stage 3">
-      {{ 'View / Edit' if meal_type in logged_meal_types else 'Log ' + meal_type }}
+    <a href="{{ url_for('view_meal', meal_id=logged_meals[meal_type]) if meal_type in logged_meal_types else url_for('add_meal', type=meal_type) }}"
+       class="btn btn-ghost btn-sm">
+      {{ 'View meal' if meal_type in logged_meal_types else 'Log ' + meal_type }}
     </a>
   </div>
   {% endfor %}

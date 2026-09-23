@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}{{ meal['meal_type'] }} · NutriTrack{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ meal['meal_type'] }}</h1>
+    <p class="page-subtitle">{{ meal['logged_date'] }}</p>
+  </div>
+  <form method="post" action="{{ url_for('delete_meal', meal_id=meal['id']) }}"
+        onsubmit="return confirm('Delete this meal? This cannot be undone.');">
+    <button type="submit" class="btn btn-ghost" style="color: var(--danger) !important; border-color: #f4c8c4;">
+      Delete meal
+    </button>
+  </form>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+  <table class="selected-foods-table">
+    <thead>
+      <tr>
+        <th>Food</th>
+        <th>Quantity</th>
+        <th>Calories</th>
+        <th>Protein</th>
+        <th>Carbs</th>
+        <th>Fat</th>
+        <th>Fiber</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>{{ item['name'] }}</td>
+        <td>{{ item['quantity'] }} × {{ item['serving_size'] or 'serving' }}</td>
+        <td>{{ (item['calories'] * item['quantity']) | round(0) | int }}</td>
+        <td>{{ (item['protein'] * item['quantity']) | round(1) }}</td>
+        <td>{{ (item['carbs'] * item['quantity']) | round(1) }}</td>
+        <td>{{ (item['fat'] * item['quantity']) | round(1) }}</td>
+        <td>{{ (item['fiber'] * item['quantity']) | round(1) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 class="section-title">Meal totals</h2>
+<div class="stats-grid">
+  <div class="stat-card"><div class="stat-value">{{ totals['calories'] | round(0) | int }}</div><div class="stat-label">Calories (kcal)</div></div>
+  <div class="stat-card"><div class="stat-value">{{ totals['protein'] | round(1) }}</div><div class="stat-label">Protein (g)</div></div>
+  <div class="stat-card"><div class="stat-value">{{ totals['carbs'] | round(1) }}</div><div class="stat-label">Carbohydrates (g)</div></div>
+  <div class="stat-card"><div class="stat-value">{{ totals['fat'] | round(1) }}</div><div class="stat-label">Fat (g)</div></div>
+  <div class="stat-card"><div class="stat-value">{{ totals['fiber'] | round(1) }}</div><div class="stat-label">Fiber (g)</div></div>
+</div>
+
+<a href="{{ url_for('dashboard') }}" class="btn btn-ghost" style="margin-top: 24px;">← Back to dashboard</a>
+{% endblock %}

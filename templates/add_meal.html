@@ -1,0 +1,252 @@
+{% extends 'base.html' %}
+{% block title %}Add Meal · NutriTrack{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Log a meal</h1>
+    <p class="page-subtitle">Search the food database and build your meal.</p>
+  </div>
+</div>
+
+<div class="card">
+  <form method="post" id="add-meal-form">
+    <div class="field-group" style="max-width: 260px;">
+      <label for="meal_type">Meal type</label>
+      <select id="meal_type" name="meal_type" required>
+        {% for mt in meal_types %}
+        <option value="{{ mt }}" {{ 'selected' if mt == selected_type }}>{{ mt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <h2 class="section-title">Search foods</h2>
+    <div class="food-search">
+      <input type="text" id="food-search-input" placeholder="Search e.g. rice, dal, paneer..." autocomplete="off">
+    </div>
+    <div id="search-results" class="search-results"></div>
+
+    <h2 class="section-title">Selected foods</h2>
+    <p class="empty-note" id="selected-foods-empty">No foods added yet — search above and click Add.</p>
+    <table class="selected-foods-table" id="selected-foods-table" style="display:none;">
+      <thead>
+        <tr>
+          <th>Food</th>
+          <th>Qty (servings)</th>
+          <th>Calories</th>
+          <th>Protein</th>
+          <th>Carbs</th>
+          <th>Fat</th>
+          <th>Fiber</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="selected-foods-body"></tbody>
+    </table>
+
+    <h2 class="section-title">Nutrition summary</h2>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-value" id="sum-calories">0</div><div class="stat-label">Calories (kcal)</div></div>
+      <div class="stat-card"><div class="stat-value" id="sum-protein">0</div><div class="stat-label">Protein (g)</div></div>
+      <div class="stat-card"><div class="stat-value" id="sum-carbs">0</div><div class="stat-label">Carbohydrates (g)</div></div>
+      <div class="stat-card"><div class="stat-value" id="sum-fat">0</div><div class="stat-label">Fat (g)</div></div>
+      <div class="stat-card"><div class="stat-value" id="sum-fiber">0</div><div class="stat-label">Fiber (g)</div></div>
+    </div>
+
+    <div id="hidden-inputs"></div>
+
+    <div style="display:flex; gap:12px; margin-top:28px;">
+      <button type="submit" id="save-meal-btn" class="btn btn-primary" disabled>Save Meal</button>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-ghost">Cancel</a>
+    </div>
+  </form>
+</div>
+
+<script>
+(function () {
+  var selected = [];
+  var searchInput = document.getElementById('food-search-input');
+  var resultsEl = document.getElementById('search-results');
+  var bodyEl = document.getElementById('selected-foods-body');
+  var tableEl = document.getElementById('selected-foods-table');
+  var emptyEl = document.getElementById('selected-foods-empty');
+  var saveBtn = document.getElementById('save-meal-btn');
+  var hiddenInputsEl = document.getElementById('hidden-inputs');
+  var form = document.getElementById('add-meal-form');
+  var debounceTimer = null;
+
+  function fmt(n) { return Math.round(n * 10) / 10; }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : s;
+    return d.innerHTML;
+  }
+
+  function renderResults(foods) {
+    resultsEl.innerHTML = '';
+    if (!foods.length) {
+      resultsEl.innerHTML = '<p class="empty-note">No matches found.</p>';
+      return;
+    }
+    foods.forEach(function (f) {
+      var row = document.createElement('div');
+      row.className = 'search-result-row';
+
+      var info = document.createElement('div');
+      info.className = 'search-result-info';
+      info.innerHTML =
+        '<span class="search-result-name">' + escapeHtml(f.name) + '</span>' +
+        '<span class="search-result-meta">' + escapeHtml(f.serving_size || 'per serving') +
+        ' · ' + Math.round(f.calories) + ' kcal</span>';
+      row.appendChild(info);
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-ghost btn-sm';
+      btn.textContent = 'Add';
+      btn.addEventListener('click', function () { addFood(f); });
+      row.appendChild(btn);
+
+      resultsEl.appendChild(row);
+    });
+  }
+
+  function addFood(f) {
+    var existing = selected.filter(function (item) { return item.id === f.id; })[0];
+    if (existing) {
+      existing.quantity += 1;
+    } else {
+      selected.push({
+        id: f.id, name: f.name, serving_size: f.serving_size,
+        calories: f.calories, protein: f.protein, carbs: f.carbs,
+        fat: f.fat, fiber: f.fiber, quantity: 1
+      });
+    }
+    renderSelected();
+  }
+
+  function removeFood(id) {
+    selected = selected.filter(function (item) { return item.id !== id; });
+    renderSelected();
+  }
+
+  function renderSelected() {
+    bodyEl.innerHTML = '';
+
+    var anyValid = selected.length > 0 && selected.every(function (item) { return item.quantity > 0; });
+    if (!selected.length) {
+      tableEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+    } else {
+      tableEl.style.display = 'table';
+      emptyEl.style.display = 'none';
+    }
+    saveBtn.disabled = !anyValid;
+
+    selected.forEach(function (item) {
+      var tr = document.createElement('tr');
+
+      var tdName = document.createElement('td');
+      tdName.textContent = item.name;
+      tr.appendChild(tdName);
+
+      var tdQty = document.createElement('td');
+      var qtyInput = document.createElement('input');
+      qtyInput.type = 'number';
+      qtyInput.min = '0.25';
+      qtyInput.max = '50';
+      qtyInput.step = '0.25';
+      qtyInput.value = item.quantity;
+      qtyInput.className = 'qty-input';
+      qtyInput.addEventListener('input', function () {
+        var v = parseFloat(qtyInput.value);
+        item.quantity = (isNaN(v) || v <= 0) ? 0 : v;
+        renderSelected();
+      });
+      tdQty.appendChild(qtyInput);
+      tr.appendChild(tdQty);
+
+      ['calories', 'protein', 'carbs', 'fat', 'fiber'].forEach(function (key) {
+        var td = document.createElement('td');
+        td.textContent = fmt(item[key] * item.quantity);
+        tr.appendChild(td);
+      });
+
+      var tdRemove = document.createElement('td');
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-ghost btn-sm';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function () { removeFood(item.id); });
+      tdRemove.appendChild(removeBtn);
+      tr.appendChild(tdRemove);
+
+      bodyEl.appendChild(tr);
+    });
+
+    updateSummary();
+  }
+
+  function updateSummary() {
+    var totals = { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 };
+    selected.forEach(function (item) {
+      totals.calories += item.calories * item.quantity;
+      totals.protein += item.protein * item.quantity;
+      totals.carbs += item.carbs * item.quantity;
+      totals.fat += item.fat * item.quantity;
+      totals.fiber += item.fiber * item.quantity;
+    });
+    document.getElementById('sum-calories').textContent = Math.round(totals.calories);
+    document.getElementById('sum-protein').textContent = fmt(totals.protein);
+    document.getElementById('sum-carbs').textContent = fmt(totals.carbs);
+    document.getElementById('sum-fat').textContent = fmt(totals.fat);
+    document.getElementById('sum-fiber').textContent = fmt(totals.fiber);
+  }
+
+  searchInput.addEventListener('input', function () {
+    clearTimeout(debounceTimer);
+    var q = searchInput.value.trim();
+    if (q.length < 2) {
+      resultsEl.innerHTML = '';
+      return;
+    }
+    debounceTimer = setTimeout(function () {
+      fetch('/api/foods/search?q=' + encodeURIComponent(q))
+        .then(function (res) { return res.json(); })
+        .then(renderResults)
+        .catch(function () {
+          resultsEl.innerHTML = '<p class="empty-note">Search failed. Please try again.</p>';
+        });
+    }, 250);
+  });
+
+  form.addEventListener('submit', function (e) {
+    if (!selected.length) {
+      e.preventDefault();
+      alert('Add at least one food before saving.');
+      return;
+    }
+    var invalid = selected.some(function (item) { return !(item.quantity > 0); });
+    if (invalid) {
+      e.preventDefault();
+      alert('Quantities must be greater than 0.');
+      return;
+    }
+    hiddenInputsEl.innerHTML = '';
+    selected.forEach(function (item) {
+      var fidInput = document.createElement('input');
+      fidInput.type = 'hidden';
+      fidInput.name = 'food_id';
+      fidInput.value = item.id;
+      hiddenInputsEl.appendChild(fidInput);
+
+      var qtyInput = document.createElement('input');
+      qtyInput.type = 'hidden';
+      qtyInput.name = 'quantity';
+      qtyInput.value = item.quantity;
+      hiddenInputsEl.appendChild(qtyInput);
+    });
+  });
+})();
+</script>
+{% endblock %}

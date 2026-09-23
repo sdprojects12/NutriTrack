@@ -56,24 +56,12 @@
     <p class="section-sub">Select any that apply, or choose "No Known Allergies" — these filter foods and meal suggestions.</p>
     <div class="allergy-grid">
       {% for allergy in all_allergies %}
-      {% if allergy['name'] != no_allergy_label %}
       <label class="allergy-chip {{ 'none-option' if allergy['name'] == no_allergy_label }}">
         <input type="checkbox" name="allergies" value="{{ allergy['id'] }}"
                {{ 'data-none="1"' if allergy['name'] == no_allergy_label }}
                {{ 'checked' if allergy['id'] in selected_allergy_ids }}>
         {{ allergy['name'] }}
       </label>
-      {% endif %}
-      {% endfor %}
-      {% for allergy in all_allergies %}
-      {% if allergy['name'] == no_allergy_label %}
-      <label class="allergy-chip none-option">
-        <input type="checkbox" name="allergies" value="{{ allergy['id'] }}"
-               data-none="1"
-               {{ 'checked' if allergy['id'] in selected_allergy_ids }}>
-        {{ allergy['name'] }}
-      </label>
-      {% endif %}
       {% endfor %}
     </div>
 

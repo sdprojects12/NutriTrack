@@ -4,7 +4,7 @@ from datetime import date
 from functools import wraps
 
 from flask import (
-    Flask, g, render_template, request, redirect, url_for, session, flash
+    Flask, g, render_template, request, redirect, url_for, session, flash, jsonify
 )
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -390,14 +390,19 @@ def dashboard():
         (user_id, today.isoformat()),
     ).fetchone()
 
-    logged_meal_types = {
-        row["meal_type"]
-        for row in db.execute(
-            """SELECT DISTINCT meal_type FROM meals
-               WHERE user_id = ? AND logged_date = ?""",
-            (user_id, today.isoformat()),
-        ).fetchall()
-    }
+    # Most recent meal id per type logged today, so the dashboard can link
+    # straight to "View meal" for a type that's already logged. If a user
+    # logs the same type twice in one day (not prevented by the schema),
+    # the newest one is what gets linked.
+    todays_meal_rows = db.execute(
+        """SELECT id, meal_type FROM meals
+           WHERE user_id = ? AND logged_date = ?
+           ORDER BY created_at DESC""",
+        (user_id, today.isoformat()),
+    ).fetchall()
+    logged_meals = {}
+    for row in todays_meal_rows:
+        logged_meals.setdefault(row["meal_type"], row["id"])
 
     return render_template(
         "dashboard.html",
@@ -405,8 +410,161 @@ def dashboard():
         today=today,
         totals=totals,
         meal_types=MEAL_TYPES,
-        logged_meal_types=logged_meal_types,
+        logged_meal_types=set(logged_meals.keys()),
+        logged_meals=logged_meals,
     )
+
+
+@app.route("/api/foods/search")
+@login_required
+def api_food_search():
+    query = request.args.get("q", "").strip()
+    if len(query) < 2:
+        return jsonify([])
+
+    db = get_db()
+    rows = db.execute(
+        """SELECT id, name, category, serving_size, calories, protein,
+                  carbs, fat, fiber
+           FROM foods
+           WHERE name LIKE ?
+           ORDER BY name
+           LIMIT 20""",
+        (f"%{query}%",),
+    ).fetchall()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/meals/new", methods=("GET", "POST"))
+@login_required
+def add_meal():
+    db = get_db()
+    user_id = g.user["id"]
+
+    if request.method == "POST":
+        meal_type = request.form.get("meal_type", "")
+        food_ids_raw = request.form.getlist("food_id")
+        quantities_raw = request.form.getlist("quantity")
+
+        error = None
+        if meal_type not in MEAL_TYPES:
+            error = "Please choose a valid meal type."
+        elif not food_ids_raw:
+            error = "Add at least one food before saving."
+        elif len(food_ids_raw) != len(quantities_raw):
+            error = "Malformed submission — please try again."
+
+        parsed_items = []
+        if error is None:
+            for fid_raw, qty_raw in zip(food_ids_raw, quantities_raw):
+                try:
+                    food_id = int(fid_raw)
+                except ValueError:
+                    error = "Invalid food selected."
+                    break
+                try:
+                    quantity = float(qty_raw)
+                except ValueError:
+                    error = "Quantity must be a number."
+                    break
+                if not (0 < quantity <= 50):
+                    error = "Quantity must be greater than 0 and at most 50 servings."
+                    break
+                parsed_items.append((food_id, quantity))
+
+        if error is None:
+            food_id_set = {food_id for food_id, _ in parsed_items}
+            placeholders = ",".join("?" * len(food_id_set))
+            valid_ids = {
+                row["id"]
+                for row in db.execute(
+                    f"SELECT id FROM foods WHERE id IN ({placeholders})",
+                    tuple(food_id_set),
+                ).fetchall()
+            }
+            if valid_ids != food_id_set:
+                error = "One or more selected foods could not be found."
+
+        if error is None:
+            cur = db.execute(
+                "INSERT INTO meals (user_id, meal_type, logged_date) VALUES (?, ?, ?)",
+                (user_id, meal_type, date.today().isoformat()),
+            )
+            meal_id = cur.lastrowid
+            db.executemany(
+                "INSERT INTO meal_items (meal_id, food_id, quantity) VALUES (?, ?, ?)",
+                [(meal_id, food_id, quantity) for food_id, quantity in parsed_items],
+            )
+            db.commit()
+            flash(f"{meal_type} logged successfully.", "success")
+            return redirect(url_for("dashboard"))
+
+        flash(error, "error")
+        return render_template(
+            "add_meal.html", meal_types=MEAL_TYPES, selected_type=meal_type
+        )
+
+    selected_type = request.args.get("type", "")
+    if selected_type not in MEAL_TYPES:
+        selected_type = MEAL_TYPES[0]
+    return render_template(
+        "add_meal.html", meal_types=MEAL_TYPES, selected_type=selected_type
+    )
+
+
+@app.route("/meals/<int:meal_id>")
+@login_required
+def view_meal(meal_id):
+    db = get_db()
+    meal = db.execute(
+        "SELECT * FROM meals WHERE id = ? AND user_id = ?",
+        (meal_id, g.user["id"]),
+    ).fetchone()
+    if meal is None:
+        flash("Meal not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    items = db.execute(
+        """SELECT f.name, f.serving_size, f.category, mi.quantity,
+                  f.calories, f.protein, f.carbs, f.fat, f.fiber
+           FROM meal_items mi
+           JOIN foods f ON f.id = mi.food_id
+           WHERE mi.meal_id = ?
+           ORDER BY mi.id""",
+        (meal_id,),
+    ).fetchall()
+
+    totals = db.execute(
+        """SELECT
+             COALESCE(SUM(f.calories * mi.quantity), 0) AS calories,
+             COALESCE(SUM(f.protein * mi.quantity), 0)  AS protein,
+             COALESCE(SUM(f.carbs * mi.quantity), 0)    AS carbs,
+             COALESCE(SUM(f.fat * mi.quantity), 0)      AS fat,
+             COALESCE(SUM(f.fiber * mi.quantity), 0)    AS fiber
+           FROM meal_items mi
+           JOIN foods f ON f.id = mi.food_id
+           WHERE mi.meal_id = ?""",
+        (meal_id,),
+    ).fetchone()
+
+    return render_template("meal_detail.html", meal=meal, items=items, totals=totals)
+
+
+@app.route("/meals/<int:meal_id>/delete", methods=("POST",))
+@login_required
+def delete_meal(meal_id):
+    db = get_db()
+    meal = db.execute(
+        "SELECT id FROM meals WHERE id = ? AND user_id = ?",
+        (meal_id, g.user["id"]),
+    ).fetchone()
+    if meal is None:
+        flash("Meal not found.", "error")
+    else:
+        db.execute("DELETE FROM meals WHERE id = ?", (meal_id,))
+        db.commit()
+        flash("Meal deleted.", "success")
+    return redirect(url_for("dashboard"))
 
 
 if __name__ == "__main__":
