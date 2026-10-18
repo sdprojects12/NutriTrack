@@ -31,12 +31,16 @@
     <p class="recipe-section-label">Preparation</p>
     <p class="recipe-text">{{ recipe['instructions'] }}</p>
 
+    {% if recipe['calories'] is not none %}
     <div class="recipe-nutrition">
       <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['calories'] | round(0) | int }}</span><span class="recipe-nutrition-label">kcal</span></div>
       <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['protein'] | round(1) }} g</span><span class="recipe-nutrition-label">Protein</span></div>
       <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['carbs'] | round(1) }} g</span><span class="recipe-nutrition-label">Carbs</span></div>
       <div class="recipe-nutrition-item"><span class="recipe-nutrition-value">{{ recipe['fat'] | round(1) }} g</span><span class="recipe-nutrition-label">Fat</span></div>
     </div>
+    {% else %}
+    <p class="recipe-text">Nutrition totals are unavailable until the recipe ingredients are structured.</p>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

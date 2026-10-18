@@ -9,10 +9,10 @@ from flask import (
 from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "nutritrack.db")
+DATABASE = os.path.join(BASE_DIR, "nutritrack_v2.db")
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "dev-secret-key-change-in-production"
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "local-development-key-change-before-deployment")
 app.config["DATABASE"] = DATABASE
 
 # Stage 2 constants — kept in one place so the profile form and its
@@ -66,26 +66,9 @@ def close_db(exception=None):
         db.close()
 
 
-def init_db():
-    db = get_db()
-    with app.open_resource("schema.sql") as f:
-        db.executescript(f.read().decode("utf8"))
-    db.commit()
-
-
-@app.cli.command("init-db")
-def init_db_command():
-    """Drop and recreate all tables (destroys existing data)."""
-    init_db()
-    print("Initialized the database.")
-
-
-@app.cli.command("seed-db")
-def seed_db_command():
-    """Populate reference data: allergies, foods, recipes."""
-    from seed_data import seed
-    seed(get_db())
-    print("Seeded the database with foods, allergies and recipes.")
+# The old init-db and seed-db commands intentionally are not registered here.
+# schema_v2.sql contains DROP TABLE statements and must NEVER be run against
+# the populated migrated database as part of normal application startup.
 
 
 # ---------------------------------------------------------------------------
@@ -264,16 +247,16 @@ def profile():
         "SELECT * FROM profiles WHERE user_id = ?", (user_id,)
     ).fetchone()
     all_allergies = db.execute(
-        "SELECT id, name FROM allergies ORDER BY name"
+        "SELECT id, name FROM allergens ORDER BY name"
     ).fetchall()
     selected_allergy_ids = {
         row["allergy_id"]
         for row in db.execute(
-            "SELECT allergy_id FROM user_allergies WHERE user_id = ?", (user_id,)
+            "SELECT allergen_id AS allergy_id FROM user_allergies WHERE user_id = ?", (user_id,)
         ).fetchall()
     }
     no_allergy_row = db.execute(
-        "SELECT id FROM allergies WHERE name = ?", (NO_ALLERGY_LABEL,)
+        "SELECT id FROM allergens WHERE name = ?", (NO_ALLERGY_LABEL,)
     ).fetchone()
     no_allergy_id = no_allergy_row["id"] if no_allergy_row else None
 
@@ -345,7 +328,7 @@ def profile():
             db.execute("DELETE FROM user_allergies WHERE user_id = ?", (user_id,))
             for allergy_id in submitted_allergy_ids:
                 db.execute(
-                    "INSERT INTO user_allergies (user_id, allergy_id) VALUES (?, ?)",
+                    "INSERT INTO user_allergies (user_id, allergen_id) VALUES (?, ?)",
                     (user_id, allergy_id),
                 )
             db.commit()
@@ -389,14 +372,13 @@ def dashboard():
 
     totals = db.execute(
         """SELECT
-             COALESCE(SUM(f.calories * mi.quantity), 0) AS calories,
-             COALESCE(SUM(f.protein * mi.quantity), 0)  AS protein,
-             COALESCE(SUM(f.carbs * mi.quantity), 0)    AS carbs,
-             COALESCE(SUM(f.fat * mi.quantity), 0)      AS fat
-           FROM meals m
-           JOIN meal_items mi ON mi.meal_id = m.id
-           JOIN foods f ON f.id = mi.food_id
-           WHERE m.user_id = ? AND m.logged_date = ?""",
+              COALESCE(SUM(mi.calories_at_logging * mi.quantity), 0) AS calories,
+              COALESCE(SUM(mi.protein_at_logging * mi.quantity), 0)  AS protein,
+              COALESCE(SUM(mi.carbs_at_logging * mi.quantity), 0)    AS carbs,
+              COALESCE(SUM(mi.fat_at_logging * mi.quantity), 0)      AS fat
+            FROM meals m
+            JOIN meal_items mi ON mi.meal_id = m.id
+            WHERE m.user_id = ? AND m.logged_date = ?""",
         (user_id, today.isoformat()),
     ).fetchone()
 
@@ -417,15 +399,14 @@ def dashboard():
     # Per-meal-type nutrition totals for today's dashboard cards
     meal_nutrition_rows = db.execute(
         """SELECT m.meal_type,
-             COALESCE(SUM(f.calories * mi.quantity), 0) AS calories,
-             COALESCE(SUM(f.protein * mi.quantity), 0)  AS protein,
-             COALESCE(SUM(f.carbs * mi.quantity), 0)    AS carbs,
-             COALESCE(SUM(f.fat * mi.quantity), 0)      AS fat
-           FROM meals m
-           JOIN meal_items mi ON mi.meal_id = m.id
-           JOIN foods f ON f.id = mi.food_id
-           WHERE m.user_id = ? AND m.logged_date = ?
-           GROUP BY m.meal_type""",
+             COALESCE(SUM(mi.calories_at_logging * mi.quantity), 0) AS calories,
+             COALESCE(SUM(mi.protein_at_logging * mi.quantity), 0)  AS protein,
+             COALESCE(SUM(mi.carbs_at_logging * mi.quantity), 0)    AS carbs,
+             COALESCE(SUM(mi.fat_at_logging * mi.quantity), 0)      AS fat
+            FROM meals m
+            JOIN meal_items mi ON mi.meal_id = m.id
+            WHERE m.user_id = ? AND m.logged_date = ?
+            GROUP BY m.meal_type""",
         (user_id, today.isoformat()),
     ).fetchall()
     meal_nutrition = {row["meal_type"]: dict(row) for row in meal_nutrition_rows}
@@ -451,14 +432,49 @@ def api_food_search():
 
     db = get_db()
     rows = db.execute(
-        """SELECT id, name, category, serving_size, calories, protein,
-                  carbs, fat, fiber
-           FROM foods
-           WHERE name LIKE ?
-           ORDER BY name
+        """SELECT f.id, f.name,
+                  COALESCE((SELECT GROUP_CONCAT(c.name, ', ')
+                            FROM food_categories fc
+                            JOIN categories c ON c.id = fc.category_id
+                            WHERE fc.food_id = f.id), '') AS category,
+                  COALESCE(fs.serving_name,
+                           CAST(fn.per_amount AS TEXT) || ' ' || fn.per_unit) AS serving_size,
+                  fn.calories * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS calories,
+                  fn.protein_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS protein,
+                  fn.carbohydrates_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS carbs,
+                  fn.fat_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS fat,
+                  COALESCE(fn.fiber_g, 0) * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS fiber
+           FROM foods f
+           JOIN food_nutrition fn ON fn.food_id = f.id
+           LEFT JOIN food_servings fs
+                  ON fs.food_id = f.id AND fs.is_default = 1
+           WHERE (
+                f.name LIKE ? OR EXISTS (
+                    SELECT 1
+                    FROM food_aliases fa
+                    WHERE fa.food_id = f.id
+                      AND fa.alias LIKE ?
+                )
+           )
+           AND NOT EXISTS (
+                SELECT 1
+                FROM user_allergies ua
+                JOIN food_allergens fa
+                  ON fa.allergen_id = ua.allergen_id
+                WHERE ua.user_id = ?
+                  AND fa.food_id = f.id
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM allergens a
+                      WHERE a.id = ua.allergen_id
+                        AND a.name = 'No Known Allergies'
+                  )
+           )
+           ORDER BY f.name
            LIMIT 20""",
-        (f"%{query}%",),
+        (f"%{query}%", f"%{query}%", g.user["id"]),
     ).fetchall()
+
     return jsonify([dict(row) for row in rows])
 
 
@@ -513,18 +529,67 @@ def add_meal():
                 error = "One or more selected foods could not be found."
 
         if error is None:
-            cur = db.execute(
-                "INSERT INTO meals (user_id, meal_type, logged_date) VALUES (?, ?, ?)",
-                (user_id, meal_type, date.today().isoformat()),
-            )
-            meal_id = cur.lastrowid
-            db.executemany(
-                "INSERT INTO meal_items (meal_id, food_id, quantity) VALUES (?, ?, ?)",
-                [(meal_id, food_id, quantity) for food_id, quantity in parsed_items],
-            )
-            db.commit()
-            flash(f"{meal_type} logged successfully.", "success")
-            return redirect(url_for("dashboard"))
+            # Resolve the exact nutrition row used by search and copy its values
+            # into the meal item. Historical records must not change when a
+            # food's canonical nutrition is updated later.
+            nutrition_by_food = {}
+            for food_id, _quantity in parsed_items:
+                nutrition = db.execute(
+                    """SELECT fn.per_amount, fn.per_unit, fn.calories, fn.protein_g,
+                              fn.carbohydrates_g, fn.fat_g, fn.fiber_g,
+                              fs.serving_name, fs.serving_quantity
+                       FROM food_nutrition fn
+                       LEFT JOIN food_servings fs
+                         ON fs.food_id = fn.food_id AND fs.is_default = 1
+                       WHERE fn.food_id = ?""",
+                    (food_id,),
+                ).fetchone()
+                if nutrition is None:
+                    error = "Nutrition data is unavailable for one or more selected foods."
+                    break
+                nutrition_by_food[food_id] = nutrition
+
+        if error is None:
+            try:
+                cur = db.execute(
+                    "INSERT INTO meals (user_id, meal_type, logged_date) VALUES (?, ?, ?)",
+                    (user_id, meal_type, date.today().isoformat()),
+                )
+                meal_id = cur.lastrowid
+                for food_id, quantity in parsed_items:
+                    nutrition = nutrition_by_food[food_id]
+                    serving_quantity = nutrition["serving_quantity"] or nutrition["per_amount"]
+                    serving_unit = nutrition["per_unit"]
+                    scale = serving_quantity / nutrition["per_amount"]
+                    db.execute(
+                        """INSERT INTO meal_items (
+                               meal_id, food_id, quantity, food_name_at_logging,
+                               serving_name_at_logging, serving_quantity_at_logging,
+                               serving_unit_at_logging, calories_at_logging,
+                               protein_at_logging, carbs_at_logging, fat_at_logging,
+                               fiber_at_logging
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            meal_id, food_id, quantity,
+                            db.execute("SELECT name FROM foods WHERE id = ?", (food_id,)).fetchone()["name"],
+                            nutrition["serving_name"] or (
+                                f"{serving_quantity:g} {serving_unit}"
+                            ),
+                            serving_quantity, serving_unit,
+                            nutrition["calories"] * scale,
+                            nutrition["protein_g"] * scale,
+                            nutrition["carbohydrates_g"] * scale,
+                            nutrition["fat_g"] * scale,
+                            (nutrition["fiber_g"] or 0) * scale,
+                        ),
+                    )
+                db.commit()
+                flash(f"{meal_type} logged successfully.", "success")
+                return redirect(url_for("dashboard"))
+            except sqlite3.Error:
+                db.rollback()
+                app.logger.exception("Failed to save meal")
+                error = "The meal could not be saved. Please try again."
 
         flash(error, "error")
         return render_template(
@@ -552,8 +617,17 @@ def view_meal(meal_id):
         return redirect(url_for("dashboard"))
 
     items = db.execute(
-        """SELECT f.name, f.serving_size, f.category, mi.quantity,
-                  f.calories, f.protein, f.carbs, f.fat, f.fiber
+        """SELECT mi.food_id, mi.quantity, mi.serving_quantity_at_logging,
+                  mi.serving_unit_at_logging,
+                  COALESCE(mi.food_name_at_logging, f.name) AS name,
+                  COALESCE(mi.serving_name_at_logging,
+                           CAST(mi.serving_quantity_at_logging AS TEXT) || ' ' ||
+                           mi.serving_unit_at_logging) AS serving_size,
+                  mi.calories_at_logging AS calories,
+                  mi.protein_at_logging AS protein,
+                  mi.carbs_at_logging AS carbs,
+                  mi.fat_at_logging AS fat,
+                  COALESCE(mi.fiber_at_logging, 0) AS fiber
            FROM meal_items mi
            JOIN foods f ON f.id = mi.food_id
            WHERE mi.meal_id = ?
@@ -563,14 +637,13 @@ def view_meal(meal_id):
 
     totals = db.execute(
         """SELECT
-             COALESCE(SUM(f.calories * mi.quantity), 0) AS calories,
-             COALESCE(SUM(f.protein * mi.quantity), 0)  AS protein,
-             COALESCE(SUM(f.carbs * mi.quantity), 0)    AS carbs,
-             COALESCE(SUM(f.fat * mi.quantity), 0)      AS fat,
-             COALESCE(SUM(f.fiber * mi.quantity), 0)    AS fiber
-           FROM meal_items mi
-           JOIN foods f ON f.id = mi.food_id
-           WHERE mi.meal_id = ?""",
+             COALESCE(SUM(calories_at_logging * quantity), 0) AS calories,
+             COALESCE(SUM(protein_at_logging * quantity), 0) AS protein,
+             COALESCE(SUM(carbs_at_logging * quantity), 0) AS carbs,
+             COALESCE(SUM(fat_at_logging * quantity), 0) AS fat,
+             COALESCE(SUM(COALESCE(fiber_at_logging, 0) * quantity), 0) AS fiber
+           FROM meal_items
+           WHERE meal_id = ?""",
         (meal_id,),
     ).fetchone()
 
@@ -603,16 +676,14 @@ def suggestions():
     profile_row = db.execute(
         "SELECT dietary_preference FROM profiles WHERE user_id = ?", (user_id,)
     ).fetchone()
-    dietary_preference = (
-        profile_row["dietary_preference"] if profile_row else "Vegetarian"
-    )
+    dietary_preference = profile_row["dietary_preference"] if profile_row else "Vegetarian"
     compatible_diets = DIET_COMPATIBILITY.get(dietary_preference, DIETARY_PREFERENCES)
 
     user_allergy_names = {
         row["name"]
         for row in db.execute(
             """SELECT a.name FROM user_allergies ua
-               JOIN allergies a ON a.id = ua.allergy_id
+               JOIN allergens a ON a.id = ua.allergen_id
                WHERE ua.user_id = ?""",
             (user_id,),
         ).fetchall()
@@ -621,29 +692,87 @@ def suggestions():
 
     selected_type = request.args.get("type", "")
     if selected_type not in MEAL_TYPES:
-        selected_type = ""  # "" = show all meal types
+        selected_type = ""
 
     placeholders = ",".join("?" * len(compatible_diets))
-    query = f"SELECT * FROM recipes WHERE dietary_type IN ({placeholders})"
+    sql = f"SELECT * FROM recipes WHERE dietary_type IN ({placeholders})"
     params = list(compatible_diets)
     if selected_type:
-        query += " AND meal_type = ?"
+        sql += " AND meal_type = ?"
         params.append(selected_type)
-    query += " ORDER BY meal_type, name"
+    sql += " ORDER BY meal_type, name"
+    candidates = db.execute(sql, params).fetchall()
 
-    candidates = db.execute(query, params).fetchall()
-
-    # Excluding allergens is a per-recipe set comparison, not a substring
-    # match, so it's done here in Python rather than with SQL LIKE (which
-    # would wrongly match e.g. "Egg" inside "Eggetarian").
     recipes = []
     for recipe in candidates:
+        recipe_id = recipe["id"]
+        recipe_items = db.execute(
+            """SELECT ri.quantity, ri.unit, f.name,
+                      fn.per_amount, fn.per_unit, fn.calories,
+                      fn.protein_g, fn.carbohydrates_g, fn.fat_g
+               FROM recipe_items ri
+               JOIN foods f ON f.id = ri.food_id
+               LEFT JOIN food_nutrition fn ON fn.food_id = f.id
+               WHERE ri.recipe_id = ?
+               ORDER BY ri.id""",
+            (recipe_id,),
+        ).fetchall()
+
         recipe_allergens = {
-            a.strip() for a in (recipe["allergens"] or "").split(",") if a.strip()
+            row["name"]
+            for row in db.execute(
+                """SELECT DISTINCT a.name
+                   FROM recipe_items ri
+                   JOIN food_allergens fa ON fa.food_id = ri.food_id
+                   JOIN allergens a ON a.id = fa.allergen_id
+                   WHERE ri.recipe_id = ?""",
+                (recipe_id,),
+            ).fetchall()
         }
+        ingredient_labels = []
+        calories = protein = carbs = fat = 0.0
+        # Only calculate totals when recipe ingredient units can be safely
+        # reconciled with the food's stored nutrition basis. The migrated
+        # legacy recipes currently have no recipe_items, so their totals remain unknown.
+        has_nutrition = bool(recipe_items) and all(
+            item["per_amount"] is not None
+            and item["per_unit"] is not None
+            and item["unit"].strip().lower() in {
+                item["per_unit"].strip().lower(),
+                "g", "gram", "grams", "ml", "milliliter", "milliliters"
+            }
+            for item in recipe_items
+        )
+        for item in recipe_items:
+            ingredient_labels.append(f"{item['name']} ({item['quantity']:g} {item['unit']})")
+            unit = item["unit"].strip().lower()
+            per_unit = item["per_unit"].strip().lower() if item["per_unit"] else ""
+            if unit in {"g", "gram", "grams", "ml", "milliliter", "milliliters"} and per_unit in {"g", "gram", "grams", "ml", "milliliter", "milliliters"}:
+                factor = item["quantity"] / item["per_amount"]
+            elif unit == per_unit:
+                factor = item["quantity"] / item["per_amount"]
+            else:
+                factor = 0
+            calories += (item["calories"] or 0) * factor
+            protein += (item["protein_g"] or 0) * factor
+            carbs += (item["carbohydrates_g"] or 0) * factor
+            fat += (item["fat_g"] or 0) * factor
+
+        # Migrated legacy recipes may not yet have recipe_items. The old
+        # ingredient text was preserved in description, so do not invent
+        # ingredient quantities or claim nutrition values we cannot calculate.
+        recipe_dict = dict(recipe)
+        recipe_dict["ingredients"] = ", ".join(ingredient_labels) if ingredient_labels else "Ingredient details need to be updated for this recipe."
+        recipe_dict["description"] = recipe["description"] or ""
+        recipe_dict["instructions"] = recipe["instructions"] or ""
+        recipe_dict["calories"] = round(calories, 2) if has_nutrition else None
+        recipe_dict["protein"] = round(protein, 2) if has_nutrition else None
+        recipe_dict["carbs"] = round(carbs, 2) if has_nutrition else None
+        recipe_dict["fat"] = round(fat, 2) if has_nutrition else None
+
         if recipe_allergens & user_allergy_names:
             continue
-        recipes.append(recipe)
+        recipes.append(recipe_dict)
 
     return render_template(
         "suggestions.html",
