@@ -78,6 +78,17 @@ a:hover { color: var(--green-700); }
 
 .page-subtitle { font-size: 14px; margin-top: 2px; }
 
+.history-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.history-filter label { color: var(--ink-500); font-size: 13px; }
+.history-filter input, .usda-serving-select {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  color: var(--ink-700);
+  background: var(--surface);
+}
+
 /* ==========================================================================
    Navbar
    ========================================================================== */
@@ -565,6 +576,7 @@ a:hover { color: var(--green-700); }
 .search-result-info { display: flex; flex-direction: column; gap: 1px; }
 .search-result-name { font-weight: 600; font-size: 13px; color: var(--ink-900); }
 .search-result-meta { font-size: 12px; color: var(--ink-500); }
+.search-status { min-height: 18px; margin-top: 5px; font-size: 12px; }
 
 .empty-note {
   font-size: 13px;

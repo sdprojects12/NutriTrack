@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block title %}Meal History · NutriTrack{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Meal history</h1><p class="page-subtitle">Review meals from earlier days.</p></div>
+  <form method="get" class="history-filter">
+    <label for="history-date">Choose a date</label>
+    <input id="history-date" type="date" name="date" value="{{ selected_date }}">
+    <button class="btn btn-primary btn-sm" type="submit">Show</button>
+    {% if selected_date %}<a class="btn btn-ghost btn-sm" href="{{ url_for('meal_history') }}">Clear</a>{% endif %}
+  </form>
+</div>
+<div class="meals-grid">
+  {% for meal in meals %}
+  <div class="meal-card">
+    <div class="meal-card-header"><span class="meal-name">{{ meal['meal_type'] }}</span></div>
+    <p>{{ meal['logged_date'] }} · {{ meal['created_at'] }}</p>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('view_meal', meal_id=meal['id']) }}">View meal</a>
+  </div>
+  {% else %}
+  <div class="card"><p>No meals found{% if selected_date %} for {{ selected_date }}{% endif %}.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

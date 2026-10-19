@@ -23,6 +23,7 @@
     <div class="food-search">
       <input type="text" id="food-search-input" placeholder="Search e.g. rice, dal, paneer..." autocomplete="off">
     </div>
+    <p id="food-search-status" class="search-status" aria-live="polite"></p>
     <div id="search-results" class="search-results"></div>
 
     <h2 class="section-title">Selected foods</h2>
@@ -66,6 +67,7 @@
   var selected = [];
   var searchInput = document.getElementById('food-search-input');
   var resultsEl = document.getElementById('search-results');
+  var searchStatusEl = document.getElementById('food-search-status');
   var bodyEl = document.getElementById('selected-foods-body');
   var tableEl = document.getElementById('selected-foods-table');
   var emptyEl = document.getElementById('selected-foods-empty');
@@ -73,6 +75,7 @@
   var hiddenInputsEl = document.getElementById('hidden-inputs');
   var form = document.getElementById('add-meal-form');
   var debounceTimer = null;
+  var searchVersion = 0;
 
   function fmt(n) { return Math.round(n * 10) / 10; }
 
@@ -87,10 +90,10 @@
     saveBtn.disabled = !anyValid;
   }
 
-  function renderResults(foods) {
+  function renderResults(foods, pending) {
     resultsEl.innerHTML = '';
     if (!foods.length) {
-      resultsEl.innerHTML = '<p class="empty-note">No matches found.</p>';
+      resultsEl.innerHTML = '<p class="empty-note">' + (pending ? 'Checking USDA foods…' : 'No matches found.') + '</p>';
       return;
     }
     foods.forEach(function (f) {
@@ -107,13 +110,37 @@
         ' \u00b7 ' + Math.round(Number(f.calories) || 0) + ' kcal</span>';
       row.appendChild(info);
 
+      var servingSelect = null;
+      if (isUSDA) {
+        servingSelect = document.createElement('select');
+        servingSelect.className = 'usda-serving-select';
+        var portions = f.portions && f.portions.length ? f.portions : [{label: '100 g', grams: 100}];
+        portions.forEach(function (portion) {
+          var option = document.createElement('option');
+          option.value = JSON.stringify(portion);
+          option.textContent = portion.label + ' (' + portion.grams + ' g)';
+          servingSelect.appendChild(option);
+        });
+        row.appendChild(servingSelect);
+        var allergyNote = document.createElement('small');
+        allergyNote.className = 'search-result-meta';
+        allergyNote.textContent = f.allergy_note || 'Check product allergen information';
+        row.appendChild(allergyNote);
+      }
+
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-ghost btn-sm';
       if (isUSDA) {
-        btn.textContent = 'Coming soon';
-        btn.disabled = true;
-        btn.title = 'USDA foods can be searched now; meal logging will be added separately.';
+        btn.textContent = 'Add';
+        if (!f.allergy_check) {
+          btn.disabled = true;
+          btn.title = 'This USDA record cannot be checked against your saved allergies.';
+        }
+        btn.addEventListener('click', function () {
+          var portion = JSON.parse(servingSelect.value);
+          addFood(f, portion);
+        });
       } else {
         btn.textContent = 'Add';
         btn.addEventListener('click', function () { addFood(f); });
@@ -124,22 +151,30 @@
     });
   }
 
-  function addFood(f) {
-    var existing = selected.filter(function (item) { return item.id === f.id; })[0];
+  function addFood(f, portion) {
+    var isUSDA = f.source === 'USDA';
+    var key = isUSDA ? 'USDA:' + f.fdc_id + ':' + (portion ? portion.grams : 100) : 'Local:' + f.id;
+    var existing = selected.filter(function (item) { return item.key === key; })[0];
     if (existing) {
       existing.quantity += 1;
     } else {
+      var grams = portion ? Number(portion.grams) : null;
+      var scale = isUSDA ? grams / 100 : 1;
       selected.push({
-        id: f.id, name: f.name, serving_size: f.serving_size,
-        calories: f.calories, protein: f.protein, carbs: f.carbs,
-        fat: f.fat, fiber: f.fiber, quantity: 1
+        key: key, source: isUSDA ? 'USDA' : 'Local', id: f.id,
+        fdc_id: f.fdc_id, name: f.name,
+        serving_size: isUSDA ? portion.label : f.serving_size,
+        serving_grams: grams,
+        calories: f.calories * scale, protein: f.protein * scale,
+        carbs: f.carbs * scale, fat: f.fat * scale, fiber: f.fiber * scale,
+        quantity: 1
       });
     }
     renderSelected();
   }
 
   function removeFood(id) {
-    selected = selected.filter(function (item) { return item.id !== id; });
+    selected = selected.filter(function (item) { return item.key !== id; });
     renderSelected();
   }
 
@@ -197,7 +232,7 @@
       removeBtn.type = 'button';
       removeBtn.className = 'btn btn-ghost btn-sm';
       removeBtn.textContent = 'Remove';
-      removeBtn.addEventListener('click', function () { removeFood(item.id); });
+      removeBtn.addEventListener('click', function () { removeFood(item.key); });
       tdRemove.appendChild(removeBtn);
       tr.appendChild(tdRemove);
 
@@ -226,17 +261,57 @@
 
   searchInput.addEventListener('input', function () {
     clearTimeout(debounceTimer);
+    var version = ++searchVersion;
     var q = searchInput.value.trim();
     if (q.length < 2) {
       resultsEl.innerHTML = '';
+      searchStatusEl.textContent = '';
       return;
     }
+    searchStatusEl.textContent = 'Searching local foods and USDA…';
+    resultsEl.innerHTML = '<p class="empty-note">Searching local foods…</p>';
     debounceTimer = setTimeout(function () {
-      fetch('/api/foods/search?q=' + encodeURIComponent(q))
-        .then(function (res) { return res.json(); })
-        .then(renderResults)
+      var localFoods = [];
+      var usdaFoods = [];
+      var localDone = false;
+      var usdaDone = false;
+      var localError = false;
+      var usdaError = false;
+      function updateResults() {
+        if (version !== searchVersion) return;
+        renderResults(localFoods.concat(usdaFoods), !localDone || !usdaDone);
+        searchStatusEl.textContent =
+          (localError ? 'Local search unavailable' : (localDone ? 'Local: ' + localFoods.length : 'Local: searching')) +
+          ' · ' +
+          (usdaError ? 'USDA search unavailable' : (usdaDone ? 'USDA: ' + usdaFoods.length : 'USDA: searching'));
+      }
+      fetch('/api/foods/search?q=' + encodeURIComponent(q), {cache: 'no-store'})
+        .then(function (res) { if (!res.ok) throw new Error('Local search failed'); return res.json(); })
+        .then(function (foods) {
+          if (version !== searchVersion) return;
+          localFoods = foods;
+          localDone = true;
+          updateResults();
+        })
         .catch(function () {
-          resultsEl.innerHTML = '<p class="empty-note">Search failed. Please try again.</p>';
+          if (version !== searchVersion) return;
+          localDone = true;
+          localError = true;
+          updateResults();
+        });
+      fetch('/api/foods/search?source=usda&q=' + encodeURIComponent(q), {cache: 'no-store'})
+        .then(function (res) { if (!res.ok) throw new Error('USDA search failed'); return res.json(); })
+        .then(function (foods) {
+          if (version !== searchVersion) return;
+          usdaFoods = foods;
+          usdaDone = true;
+          updateResults();
+        })
+        .catch(function () {
+          if (version !== searchVersion) return;
+          usdaDone = true;
+          usdaError = true;
+          updateResults();
         });
     }, 250);
   });
@@ -255,17 +330,19 @@
     }
     hiddenInputsEl.innerHTML = '';
     selected.forEach(function (item) {
-      var fidInput = document.createElement('input');
-      fidInput.type = 'hidden';
-      fidInput.name = 'food_id';
-      fidInput.value = item.id;
-      hiddenInputsEl.appendChild(fidInput);
-
       var qtyInput = document.createElement('input');
       qtyInput.type = 'hidden';
-      qtyInput.name = 'quantity';
       qtyInput.value = item.quantity;
       hiddenInputsEl.appendChild(qtyInput);
+      if (item.source === 'USDA') {
+        qtyInput.name = 'usda_quantity';
+        hiddenInputsEl.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'fdc_id', value:item.fdc_id}));
+        hiddenInputsEl.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'usda_grams', value:item.serving_grams}));
+        hiddenInputsEl.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'usda_serving_label', value:item.serving_size}));
+      } else {
+        qtyInput.name = 'quantity';
+        hiddenInputsEl.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'food_id', value:item.id}));
+      }
     });
   });
 })();

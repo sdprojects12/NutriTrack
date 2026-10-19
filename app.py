@@ -1,5 +1,7 @@
 import os
+import copy
 import sqlite3
+import time
 from datetime import date
 from functools import wraps
 from dotenv import load_dotenv
@@ -17,6 +19,15 @@ DATABASE = os.path.join(BASE_DIR, "nutritrack_v2.db")
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "local-development-key-change-before-deployment")
 app.config["DATABASE"] = DATABASE
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+
+@app.after_request
+def disable_personal_page_caching(response):
+    # Logged-in pages and search results contain profile and health data.
+    if request.endpoint != "static":
+        response.headers["Cache-Control"] = "no-store, private"
+    return response
 
 # Stage 2 constants — kept in one place so the profile form and its
 # server-side validation can never drift apart.
@@ -29,6 +40,11 @@ GENERAL_GOALS = [
     "General Health",
 ]
 MEAL_TYPES = ["Breakfast", "Lunch", "Snack", "Dinner"]
+
+# Short in-process cache for repeated USDA searches; user-specific filtering is
+# applied after retrieving these shared source records.
+USDA_SEARCH_CACHE_SECONDS = 120
+_usda_search_cache = {}
 
 # Sentinel allergy row a user selects to explicitly confirm "I have no
 # allergies." This lets us tell "confirmed no allergies" apart from
@@ -380,10 +396,22 @@ def dashboard():
               COALESCE(SUM(mi.carbs_at_logging * mi.quantity), 0)    AS carbs,
               COALESCE(SUM(mi.fat_at_logging * mi.quantity), 0)      AS fat
             FROM meals m
-            JOIN meal_items mi ON mi.meal_id = m.id
+            LEFT JOIN meal_items mi ON mi.meal_id = m.id
             WHERE m.user_id = ? AND m.logged_date = ?""",
         (user_id, today.isoformat()),
     ).fetchone()
+    usda_totals = db.execute(
+        """SELECT COALESCE(SUM(ui.calories_at_logging * ui.quantity), 0) calories,
+                  COALESCE(SUM(ui.protein_at_logging * ui.quantity), 0) protein,
+                  COALESCE(SUM(ui.carbs_at_logging * ui.quantity), 0) carbs,
+                  COALESCE(SUM(ui.fat_at_logging * ui.quantity), 0) fat
+           FROM meals m JOIN usda_meal_items ui ON ui.meal_id = m.id
+           WHERE m.user_id = ? AND m.logged_date = ?""",
+        (user_id, today.isoformat()),
+    ).fetchone()
+    totals = dict(totals)
+    for key in ("calories", "protein", "carbs", "fat"):
+        totals[key] += usda_totals[key]
 
     # Most recent meal id per type logged today, so the dashboard can link
     # straight to "View meal" for a type that's already logged. If a user
@@ -413,6 +441,22 @@ def dashboard():
         (user_id, today.isoformat()),
     ).fetchall()
     meal_nutrition = {row["meal_type"]: dict(row) for row in meal_nutrition_rows}
+    usda_meal_nutrition = db.execute(
+        """SELECT m.meal_type,
+                  SUM(ui.calories_at_logging * ui.quantity) calories,
+                  SUM(ui.protein_at_logging * ui.quantity) protein,
+                  SUM(ui.carbs_at_logging * ui.quantity) carbs,
+                  SUM(ui.fat_at_logging * ui.quantity) fat
+           FROM meals m JOIN usda_meal_items ui ON ui.meal_id = m.id
+           WHERE m.user_id = ? AND m.logged_date = ? GROUP BY m.meal_type""",
+        (user_id, today.isoformat()),
+    ).fetchall()
+    for row in usda_meal_nutrition:
+        bucket = meal_nutrition.setdefault(row["meal_type"], {
+            "calories": 0, "protein": 0, "carbs": 0, "fat": 0
+        })
+        for key in ("calories", "protein", "carbs", "fat"):
+            bucket[key] += row[key] or 0
 
     return render_template(
         "dashboard.html",
@@ -436,17 +480,18 @@ def search_usda_foods(query, limit=8):
         app.logger.warning("USDA search skipped because USDA_API_KEY is not configured")
         return []
 
+    cache_key = (query.casefold(), limit)
+    now = time.monotonic()
+    cached = _usda_search_cache.get(cache_key)
+    if cached and cached[0] > now:
+        return copy.deepcopy(cached[1])
     url = "https://api.nal.usda.gov/fdc/v1/foods/search"
     try:
         response = requests.get(
             url,
-            params={
-                "api_key": api_key,
-                "query": query,
-                "pageSize": limit,
-                "dataType": ["Foundation", "SR Legacy", "Survey (FNDDS)"],
-            },
-            timeout=10,
+            params={"api_key": api_key, "query": query, "pageSize": limit,
+                    "dataType": ["Foundation", "SR Legacy", "Survey (FNDDS)"]},
+            timeout=6,
         )
         response.raise_for_status()
         data = response.json()
@@ -466,6 +511,12 @@ def search_usda_foods(query, limit=8):
             amount = item.get("value", item.get("amount"))
             if name and amount is not None and name not in nutrients:
                 nutrients[name] = amount
+        portions = []
+        for measure in food.get("foodMeasures", []) or []:
+            grams = measure.get("gramWeight")
+            label = measure.get("disseminationText")
+            if grams and grams > 0 and label:
+                portions.append({"label": label, "grams": grams})
         results.append({
             "source": "USDA",
             "fdc_id": food.get("fdcId"),
@@ -477,8 +528,17 @@ def search_usda_foods(query, limit=8):
             "carbs": nutrients.get("carbs", 0),
             "fat": nutrients.get("fat", 0),
             "fiber": nutrients.get("fiber", 0),
+            "portions": portions,
+            "ingredients": food.get("ingredients"),
+            "allergens": food.get("allergens"),
         })
-    return results
+    _usda_search_cache[cache_key] = (now + USDA_SEARCH_CACHE_SECONDS, results)
+    # Keep the cache bounded even during long-running development sessions.
+    if len(_usda_search_cache) > 128:
+        for key, value in list(_usda_search_cache.items()):
+            if value[0] <= now:
+                _usda_search_cache.pop(key, None)
+    return copy.deepcopy(results)
 
 def usda_food_matches_diet(food_name, dietary_preference):
     """Conservatively filter USDA descriptions by the user's saved diet.
@@ -550,26 +610,58 @@ def get_usda_food_nutrition(fdc_id):
         )
         return None
 
+    nutrient_numbers = {"208": "calories", "957": "calories",
+                        "203": "protein", "205": "carbs", "204": "fat",
+                        "291": "fiber"}
     nutrients = {}
-
     for item in food.get("foodNutrients", []):
         nutrient = item.get("nutrient", {})
-        name = nutrient.get("name")
+        name = nutrient_numbers.get(str(nutrient.get("number", "")))
         amount = item.get("amount")
-
         if name and amount is not None:
-            nutrients[name] = amount
+            nutrients.setdefault(name, amount)
 
+    portions = []
+    for portion in food.get("foodPortions", []) or []:
+        grams = portion.get("gramWeight")
+        label = portion.get("portionDescription") or portion.get("modifier")
+        if grams and grams > 0 and label:
+            portions.append({"label": label, "grams": grams})
     return {
         "fdc_id": food.get("fdcId"),
         "name": food.get("description", ""),
         "data_type": food.get("dataType", ""),
-        "calories": nutrients.get("Energy"),
-        "protein": nutrients.get("Protein"),
-        "carbs": nutrients.get("Carbohydrate, by difference"),
-        "fat": nutrients.get("Total lipid (fat)"),
-        "fiber": nutrients.get("Fiber, total dietary"),
+        "calories": nutrients.get("calories"),
+        "protein": nutrients.get("protein"),
+        "carbs": nutrients.get("carbs"),
+        "fat": nutrients.get("fat"),
+        "fiber": nutrients.get("fiber", 0),
+        "portions": portions,
+        "ingredients": food.get("ingredients"),
+        "allergens": food.get("allergens"),
     }
+
+
+def usda_allergens_clear(food, user_allergies):
+    """Fail closed when an external record cannot be checked for allergies."""
+    if not user_allergies:
+        return True
+    declaration = food.get("allergens")
+    if not declaration:
+        return False
+    text = str(declaration).casefold()
+    aliases = {
+        "peanut": ("peanut",),
+        "tree nuts": ("tree nut", "almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut"),
+        "dairy": ("milk", "dairy", "whey", "casein", "lactose"),
+        "gluten": ("gluten", "wheat", "barley", "rye"),
+        "soy": ("soy", "soya"),
+        "egg": ("egg",),
+        "sesame": ("sesame",),
+        "mustard": ("mustard",),
+    }
+    return not any(alias in text for allergy in user_allergies
+                   for alias in aliases.get(allergy.casefold(), (allergy.casefold(),)))
 
 @app.route("/api/foods/search")
 @login_required
@@ -592,6 +684,26 @@ def api_food_search():
     dietary_preference = (
         profile["dietary_preference"] if profile else "Vegetarian"
     )
+    user_allergies = [row["name"] for row in db.execute(
+        """SELECT a.name FROM user_allergies ua JOIN allergens a ON a.id=ua.allergen_id
+           WHERE ua.user_id=? AND a.name != ?""",
+        (user_id, NO_ALLERGY_LABEL),
+    ).fetchall()]
+
+    if request.args.get("source") == "usda":
+        usda_results = search_usda_foods(query, limit=6)
+        usda_results = [
+            food for food in usda_results
+            if usda_food_matches_diet(food.get("name", ""), dietary_preference)
+        ]
+        for food in usda_results:
+            food["allergy_check"] = usda_allergens_clear(food, user_allergies)
+            food["allergy_note"] = (
+                "Allergen declaration available" if food["allergy_check"] and user_allergies
+                else "USDA does not provide a declaration for this record; allergen safety cannot be confirmed"
+                if user_allergies else "Check product label for allergens"
+            )
+        return jsonify(usda_results)
 
     # Food types compatible with each dietary preference.
     diet_compatibility = {
@@ -679,14 +791,7 @@ def api_food_search():
         food["source"] = "Local"
         local_results.append(food)
 
-    # External results are supplementary only. The frontend marks them as
-    # non-selectable until USDA meal logging has its own safe server-side flow.
-    usda_results = search_usda_foods(query, limit=6)
-    usda_results = [
-        food for food in usda_results
-        if usda_food_matches_diet(food.get("name", ""), dietary_preference)
-    ]
-    return jsonify(local_results + usda_results)
+    return jsonify(local_results)
 
 
 
@@ -700,16 +805,21 @@ def add_meal():
         meal_type = request.form.get("meal_type", "")
         food_ids_raw = request.form.getlist("food_id")
         quantities_raw = request.form.getlist("quantity")
+        fdc_ids_raw = request.form.getlist("fdc_id")
+        usda_quantities_raw = request.form.getlist("usda_quantity")
+        usda_grams_raw = request.form.getlist("usda_grams")
+        usda_labels_raw = request.form.getlist("usda_serving_label")
 
         error = None
         if meal_type not in MEAL_TYPES:
             error = "Please choose a valid meal type."
-        elif not food_ids_raw:
+        elif not food_ids_raw and not fdc_ids_raw:
             error = "Add at least one food before saving."
         elif len(food_ids_raw) != len(quantities_raw):
             error = "Malformed submission — please try again."
 
         parsed_items = []
+        parsed_usda_items = []
         if error is None:
             for fid_raw, qty_raw in zip(food_ids_raw, quantities_raw):
                 try:
@@ -727,7 +837,25 @@ def add_meal():
                     break
                 parsed_items.append((food_id, quantity))
 
+        if error is None and not (
+            len(fdc_ids_raw) == len(usda_quantities_raw) == len(usda_grams_raw) == len(usda_labels_raw)
+        ):
+            error = "Malformed USDA food submission — please try again."
         if error is None:
+            for fdc_raw, qty_raw, grams_raw, label in zip(
+                fdc_ids_raw, usda_quantities_raw, usda_grams_raw, usda_labels_raw
+            ):
+                try:
+                    fdc_id, quantity, grams = int(fdc_raw), float(qty_raw), float(grams_raw)
+                except (ValueError, TypeError):
+                    error = "Invalid USDA food selection."
+                    break
+                if fdc_id <= 0 or not (0 < quantity <= 50) or not (0 < grams <= 5000):
+                    error = "USDA quantity must be between 0 and 50 servings."
+                    break
+                parsed_usda_items.append((fdc_id, quantity, grams, label[:120]))
+
+        if error is None and parsed_items:
             food_id_set = {food_id for food_id, _ in parsed_items}
             placeholders = ",".join("?" * len(food_id_set))
             valid_ids = {
@@ -740,7 +868,25 @@ def add_meal():
             if valid_ids != food_id_set:
                 error = "One or more selected foods could not be found."
 
-        if error is None:
+        if error is None and parsed_items:
+            active_allergy_ids = [row["allergen_id"] for row in db.execute(
+                """SELECT allergen_id FROM user_allergies ua
+                   JOIN allergens a ON a.id=ua.allergen_id
+                   WHERE ua.user_id=? AND a.name != ?""",
+                (user_id, NO_ALLERGY_LABEL),
+            ).fetchall()]
+            if active_allergy_ids:
+                allergy_marks = ",".join("?" for _ in active_allergy_ids)
+                conflict = db.execute(
+                    f"""SELECT 1 FROM food_allergens
+                       WHERE food_id IN ({','.join('?' for _ in {food_id for food_id, _ in parsed_items})})
+                         AND allergen_id IN ({allergy_marks}) LIMIT 1""",
+                    (*{food_id for food_id, _ in parsed_items}, *active_allergy_ids),
+                ).fetchone()
+                if conflict:
+                    error = "One or more foods conflict with your saved allergy settings."
+
+        if error is None and parsed_items:
             # Resolve the exact nutrition row used by search and copy its values
             # into the meal item. Historical records must not change when a
             # food's canonical nutrition is updated later.
@@ -768,6 +914,10 @@ def add_meal():
                     (user_id, meal_type, date.today().isoformat()),
                 )
                 meal_id = cur.lastrowid
+                profile = db.execute(
+                    "SELECT dietary_preference FROM profiles WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                dietary_preference = profile["dietary_preference"] if profile else "Vegetarian"
                 for food_id, quantity in parsed_items:
                     nutrition = nutrition_by_food[food_id]
                     serving_quantity = nutrition["serving_quantity"] or nutrition["per_amount"]
@@ -795,6 +945,41 @@ def add_meal():
                             (nutrition["fiber_g"] or 0) * scale,
                         ),
                     )
+                user_allergies = [row["name"] for row in db.execute(
+                    """SELECT a.name FROM user_allergies ua
+                       JOIN allergens a ON a.id=ua.allergen_id
+                       WHERE ua.user_id=? AND a.name != ?""",
+                    (user_id, NO_ALLERGY_LABEL),
+                ).fetchall()]
+                for fdc_id, quantity, grams, label in parsed_usda_items:
+                    food = get_usda_food_nutrition(fdc_id)
+                    if (not food or food.get("fdc_id") != fdc_id or
+                            not usda_food_matches_diet(food.get("name"),
+                                dietary_preference) or
+                            not usda_allergens_clear(food, user_allergies)):
+                        raise ValueError("USDA food could not be verified against your saved dietary and allergy settings.")
+                    portion = next((p for p in food.get("portions", [])
+                                    if abs(float(p["grams"]) - grams) < 0.01), None)
+                    if not portion and abs(grams - 100) < 0.01 and label == "100 g":
+                        portion = {"label": label, "grams": grams}
+                    if not portion:
+                        raise ValueError("That USDA serving size is no longer available. Search again and choose a listed serving.")
+                    values = [food.get(k) for k in ("calories", "protein", "carbs", "fat", "fiber")]
+                    if any(value is None or value < 0 for value in values):
+                        raise ValueError("USDA nutrition data is incomplete for this food.")
+                    scale = grams / 100
+                    db.execute(
+                        """INSERT INTO usda_meal_items (
+                           meal_id, fdc_id, quantity, food_name_at_logging,
+                           serving_name_at_logging, serving_grams_at_logging,
+                           calories_at_logging, protein_at_logging, carbs_at_logging,
+                           fat_at_logging, fiber_at_logging
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (meal_id, fdc_id, quantity, food["name"],
+                         portion["label"] if portion else label, grams,
+                         values[0] * scale, values[1] * scale, values[2] * scale,
+                         values[3] * scale, values[4] * scale),
+                    )
                 db.commit()
                 flash(f"{meal_type} logged successfully.", "success")
                 return redirect(url_for("dashboard"))
@@ -802,6 +987,9 @@ def add_meal():
                 db.rollback()
                 app.logger.exception("Failed to save meal")
                 error = "The meal could not be saved. Please try again."
+            except ValueError as exc:
+                db.rollback()
+                error = str(exc)
 
         flash(error, "error")
         return render_template(
@@ -843,20 +1031,40 @@ def view_meal(meal_id):
            FROM meal_items mi
            JOIN foods f ON f.id = mi.food_id
            WHERE mi.meal_id = ?
-           ORDER BY mi.id""",
-        (meal_id,),
+           UNION ALL
+           SELECT NULL AS food_id, quantity, serving_grams_at_logging,
+                  'g' AS serving_unit_at_logging, food_name_at_logging AS name,
+                  serving_name_at_logging AS serving_size,
+                  calories_at_logging AS calories, protein_at_logging AS protein,
+                  carbs_at_logging AS carbs, fat_at_logging AS fat,
+                  fiber_at_logging AS fiber
+           FROM usda_meal_items WHERE meal_id = ?
+           ORDER BY name""",
+        (meal_id, meal_id),
     ).fetchall()
 
     totals = db.execute(
-        """SELECT
-             COALESCE(SUM(calories_at_logging * quantity), 0) AS calories,
-             COALESCE(SUM(protein_at_logging * quantity), 0) AS protein,
-             COALESCE(SUM(carbs_at_logging * quantity), 0) AS carbs,
-             COALESCE(SUM(fat_at_logging * quantity), 0) AS fat,
-             COALESCE(SUM(COALESCE(fiber_at_logging, 0) * quantity), 0) AS fiber
-           FROM meal_items
-           WHERE meal_id = ?""",
-        (meal_id,),
+        """SELECT COALESCE(SUM(calories),0) calories,
+                  COALESCE(SUM(protein),0) protein,
+                  COALESCE(SUM(carbs),0) carbs,
+                  COALESCE(SUM(fat),0) fat,
+                  COALESCE(SUM(fiber),0) fiber
+           FROM (
+             SELECT SUM(calories_at_logging * quantity) calories,
+                    SUM(protein_at_logging * quantity) protein,
+                    SUM(carbs_at_logging * quantity) carbs,
+                    SUM(fat_at_logging * quantity) fat,
+                    SUM(COALESCE(fiber_at_logging,0) * quantity) fiber
+             FROM meal_items WHERE meal_id = ?
+             UNION ALL
+             SELECT SUM(calories_at_logging * quantity),
+                    SUM(protein_at_logging * quantity),
+                    SUM(carbs_at_logging * quantity),
+                    SUM(fat_at_logging * quantity),
+                    SUM(fiber_at_logging * quantity)
+             FROM usda_meal_items WHERE meal_id = ?
+           )""",
+        (meal_id, meal_id),
     ).fetchone()
 
     return render_template("meal_detail.html", meal=meal, items=items, totals=totals)
@@ -877,6 +1085,26 @@ def delete_meal(meal_id):
         db.commit()
         flash("Meal deleted.", "success")
     return redirect(url_for("dashboard"))
+
+
+@app.route("/history")
+@login_required
+def meal_history():
+    db = get_db()
+    selected_date = request.args.get("date", "").strip()
+    if selected_date:
+        try:
+            date.fromisoformat(selected_date)
+        except ValueError:
+            selected_date = ""
+    sql = "SELECT id, meal_type, logged_date, created_at FROM meals WHERE user_id = ?"
+    params = [g.user["id"]]
+    if selected_date:
+        sql += " AND logged_date = ?"
+        params.append(selected_date)
+    sql += " ORDER BY logged_date DESC, created_at DESC LIMIT 100"
+    meals = db.execute(sql, params).fetchall()
+    return render_template("history.html", meals=meals, selected_date=selected_date)
 
 
 @app.route("/suggestions")

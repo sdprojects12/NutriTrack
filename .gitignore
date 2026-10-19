@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 .env
 *.db
+nutritrack_v2.db.pre_usda_backup
+schema_v2.sql
 .vscode/
 *.xlsx
 
