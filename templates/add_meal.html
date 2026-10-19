@@ -99,17 +99,25 @@
 
       var info = document.createElement('div');
       info.className = 'search-result-info';
+      var isUSDA = f.source === 'USDA';
       info.innerHTML =
-        '<span class="search-result-name">' + escapeHtml(f.name) + '</span>' +
+        '<span class="search-result-name">' + escapeHtml(f.name) +
+        ' <small>(' + (isUSDA ? 'USDA' : 'NutriTrack') + ')</small></span>' +
         '<span class="search-result-meta">' + escapeHtml(f.serving_size || 'per serving') +
-        ' \u00b7 ' + Math.round(f.calories) + ' kcal</span>';
+        ' \u00b7 ' + Math.round(Number(f.calories) || 0) + ' kcal</span>';
       row.appendChild(info);
 
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn btn-ghost btn-sm';
-      btn.textContent = 'Add';
-      btn.addEventListener('click', function () { addFood(f); });
+      if (isUSDA) {
+        btn.textContent = 'Coming soon';
+        btn.disabled = true;
+        btn.title = 'USDA foods can be searched now; meal logging will be added separately.';
+      } else {
+        btn.textContent = 'Add';
+        btn.addEventListener('click', function () { addFood(f); });
+      }
       row.appendChild(btn);
 
       resultsEl.appendChild(row);

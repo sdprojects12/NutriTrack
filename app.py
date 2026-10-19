@@ -2,11 +2,14 @@ import os
 import sqlite3
 from datetime import date
 from functools import wraps
-
+from dotenv import load_dotenv
+import requests
 from flask import (
     Flask, g, render_template, request, redirect, url_for, session, flash, jsonify
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+
+load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "nutritrack_v2.db")
@@ -422,6 +425,151 @@ def dashboard():
         meal_nutrition=meal_nutrition,
     )
 
+def search_usda_foods(query, limit=8):
+    """Search USDA FoodData Central without modifying the local database.
+
+    Search-result nutrient values are shown as USDA-provided values per 100 g.
+    USDA records are deliberately not assigned a local ``id``.
+    """
+    api_key = os.getenv("USDA_API_KEY")
+    if not api_key:
+        app.logger.warning("USDA search skipped because USDA_API_KEY is not configured")
+        return []
+
+    url = "https://api.nal.usda.gov/fdc/v1/foods/search"
+    try:
+        response = requests.get(
+            url,
+            params={
+                "api_key": api_key,
+                "query": query,
+                "pageSize": limit,
+                "dataType": ["Foundation", "SR Legacy", "Survey (FNDDS)"],
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError):
+        app.logger.exception("USDA food search failed")
+        return []
+
+    # USDA nutrient IDs are more stable than display names across data types.
+    nutrient_ids = {1008: "calories", 2047: "calories", 2048: "calories",
+                    1003: "protein", 1005: "carbs", 1004: "fat", 1079: "fiber"}
+    results = []
+    for food in data.get("foods", []):
+        nutrients = {}
+        for item in food.get("foodNutrients", []):
+            nutrient_id = item.get("nutrientId")
+            name = nutrient_ids.get(nutrient_id)
+            amount = item.get("value", item.get("amount"))
+            if name and amount is not None and name not in nutrients:
+                nutrients[name] = amount
+        results.append({
+            "source": "USDA",
+            "fdc_id": food.get("fdcId"),
+            "name": food.get("description", ""),
+            "data_type": food.get("dataType", ""),
+            "serving_size": "per 100 g (USDA data)",
+            "calories": nutrients.get("calories", 0),
+            "protein": nutrients.get("protein", 0),
+            "carbs": nutrients.get("carbs", 0),
+            "fat": nutrients.get("fat", 0),
+            "fiber": nutrients.get("fiber", 0),
+        })
+    return results
+
+def usda_food_matches_diet(food_name, dietary_preference):
+    """Conservatively filter USDA descriptions by the user's saved diet.
+
+    USDA descriptions are not complete ingredient lists, so this only removes
+    obvious conflicts. It cannot certify that a food is suitable for a diet.
+    """
+    import re
+
+    name = (food_name or "").lower()
+
+    # Word-boundary matching avoids treating words such as "eggplant" as egg.
+    meat_or_seafood = re.compile(
+        r"\b(chicken|turkey|duck|goose|beef|pork|bacon|ham|sausage|"
+        r"lamb|mutton|goat meat|venison|rabbit|quail|meat|fish|salmon|"
+        r"tuna|anchovy|sardine|trout|cod|haddock|tilapia|prawn|shrimp|"
+        r"crab|lobster|crayfish|clam|mussel|oyster|scallop|squid|octopus|"
+        r"anchovy|gelatin|lard|tallow|suet)\b"
+    )
+    eggs = re.compile(
+        r"\b(egg|eggs|egg white|egg yolk|omelet|omelette|mayonnaise|mayo)\b"
+    )
+    dairy = re.compile(
+        r"\b(milk|cheese|butter|ghee|cream|yogurt|yoghurt|curd|paneer|"
+        r"whey|casein|lactose|buttermilk|kefir|khoa|khoya|malai|custard)\b"
+    )
+    animal_derived = re.compile(
+        r"\b(honey|beeswax|royal jelly)\b"
+    )
+
+    if dietary_preference == "Non-Vegetarian":
+        return True
+
+    if meat_or_seafood.search(name):
+        return False
+
+    # The app's local compatibility rules treat Vegetarian as egg-free,
+    # while Eggetarian permits egg but excludes meat and seafood.
+    if dietary_preference == "Vegetarian" and eggs.search(name):
+        return False
+
+    if dietary_preference == "Vegan":
+        if eggs.search(name) or dairy.search(name) or animal_derived.search(name):
+            return False
+
+    return True
+
+
+def get_usda_food_nutrition(fdc_id):
+    """Fetch key nutrition values for one USDA food record."""
+    api_key = os.getenv("USDA_API_KEY")
+
+    if not api_key:
+        return None
+
+    try:
+        response = requests.get(
+            f"https://api.nal.usda.gov/fdc/v1/food/{fdc_id}",
+            params={"api_key": api_key},
+            timeout=10,
+        )
+        response.raise_for_status()
+        food = response.json()
+
+    except (requests.RequestException, ValueError):
+        app.logger.exception(
+            "USDA nutrition lookup failed for FDC ID %s",
+            fdc_id,
+        )
+        return None
+
+    nutrients = {}
+
+    for item in food.get("foodNutrients", []):
+        nutrient = item.get("nutrient", {})
+        name = nutrient.get("name")
+        amount = item.get("amount")
+
+        if name and amount is not None:
+            nutrients[name] = amount
+
+    return {
+        "fdc_id": food.get("fdcId"),
+        "name": food.get("description", ""),
+        "data_type": food.get("dataType", ""),
+        "calories": nutrients.get("Energy"),
+        "protein": nutrients.get("Protein"),
+        "carbs": nutrients.get("Carbohydrate, by difference"),
+        "fat": nutrients.get("Total lipid (fat)"),
+        "fiber": nutrients.get("Fiber, total dietary"),
+    }
 
 @app.route("/api/foods/search")
 @login_required
@@ -431,51 +579,115 @@ def api_food_search():
         return jsonify([])
 
     db = get_db()
+    user_id = g.user["id"]
+
+    # Read the user's saved dietary preference.
+    profile = db.execute(
+        """SELECT dietary_preference
+           FROM profiles
+           WHERE user_id = ?""",
+        (user_id,),
+    ).fetchone()
+
+    dietary_preference = (
+        profile["dietary_preference"] if profile else "Vegetarian"
+    )
+
+    # Food types compatible with each dietary preference.
+    diet_compatibility = {
+        "Vegan": ["Vegan"],
+        "Vegetarian": ["Vegan", "Vegetarian"],
+        "Eggetarian": ["Vegan", "Vegetarian", "Eggetarian"],
+        "Non-Vegetarian": [
+            "Vegan",
+            "Vegetarian",
+            "Eggetarian",
+            "Non-Vegetarian",
+        ],
+    }
+
+    compatible_diets = diet_compatibility.get(
+        dietary_preference, ["Vegan", "Vegetarian"]
+    )
+    diet_placeholders = ",".join("?" for _ in compatible_diets)
+
     rows = db.execute(
-        """SELECT f.id, f.name,
-                  COALESCE((SELECT GROUP_CONCAT(c.name, ', ')
-                            FROM food_categories fc
-                            JOIN categories c ON c.id = fc.category_id
-                            WHERE fc.food_id = f.id), '') AS category,
-                  COALESCE(fs.serving_name,
-                           CAST(fn.per_amount AS TEXT) || ' ' || fn.per_unit) AS serving_size,
-                  fn.calories * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS calories,
-                  fn.protein_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS protein,
-                  fn.carbohydrates_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS carbs,
-                  fn.fat_g * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS fat,
-                  COALESCE(fn.fiber_g, 0) * (COALESCE(fs.serving_quantity, fn.per_amount) / fn.per_amount) AS fiber
-           FROM foods f
-           JOIN food_nutrition fn ON fn.food_id = f.id
-           LEFT JOIN food_servings fs
-                  ON fs.food_id = f.id AND fs.is_default = 1
-           WHERE (
-                f.name LIKE ? OR EXISTS (
-                    SELECT 1
-                    FROM food_aliases fa
-                    WHERE fa.food_id = f.id
-                      AND fa.alias LIKE ?
-                )
-           )
-           AND NOT EXISTS (
-                SELECT 1
-                FROM user_allergies ua
-                JOIN food_allergens fa
-                  ON fa.allergen_id = ua.allergen_id
-                WHERE ua.user_id = ?
-                  AND fa.food_id = f.id
-                  AND NOT EXISTS (
+        f"""SELECT f.id, f.name,
+                   COALESCE(
+                       (SELECT GROUP_CONCAT(c.name, ', ')
+                        FROM food_categories fc
+                        JOIN categories c ON c.id = fc.category_id
+                        WHERE fc.food_id = f.id),
+                       ''
+                   ) AS category,
+                   COALESCE(
+                       fs.serving_name,
+                       CAST(fn.per_amount AS TEXT) || ' ' || fn.per_unit
+                   ) AS serving_size,
+                   fn.calories *
+                       (COALESCE(fs.serving_quantity, fn.per_amount)
+                        / fn.per_amount) AS calories,
+                   fn.protein_g *
+                       (COALESCE(fs.serving_quantity, fn.per_amount)
+                        / fn.per_amount) AS protein,
+                   fn.carbohydrates_g *
+                       (COALESCE(fs.serving_quantity, fn.per_amount)
+                        / fn.per_amount) AS carbs,
+                   fn.fat_g *
+                       (COALESCE(fs.serving_quantity, fn.per_amount)
+                        / fn.per_amount) AS fat,
+                   COALESCE(fn.fiber_g, 0) *
+                       (COALESCE(fs.serving_quantity, fn.per_amount)
+                        / fn.per_amount) AS fiber
+            FROM foods f
+            JOIN food_nutrition fn ON fn.food_id = f.id
+            LEFT JOIN food_servings fs
+                ON fs.food_id = f.id AND fs.is_default = 1
+            WHERE f.dietary_type IN ({diet_placeholders})
+              AND (
+                  f.name LIKE ?
+                  OR EXISTS (
                       SELECT 1
-                      FROM allergens a
-                      WHERE a.id = ua.allergen_id
-                        AND a.name = 'No Known Allergies'
+                      FROM food_aliases fa
+                      WHERE fa.food_id = f.id
+                        AND fa.alias LIKE ?
                   )
-           )
-           ORDER BY f.name
-           LIMIT 20""",
-        (f"%{query}%", f"%{query}%", g.user["id"]),
+              )
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM user_allergies ua
+                  JOIN allergens a ON a.id = ua.allergen_id
+                  JOIN food_allergens fa ON fa.allergen_id = a.id
+                  WHERE ua.user_id = ?
+                    AND a.name != ?
+                    AND fa.food_id = f.id
+              )
+            ORDER BY f.name
+            LIMIT 20""",
+        (
+            *compatible_diets,
+            f"%{query}%",
+            f"%{query}%",
+            user_id,
+            NO_ALLERGY_LABEL,
+        ),
     ).fetchall()
 
-    return jsonify([dict(row) for row in rows])
+    local_results = []
+    for row in rows:
+        food = dict(row)
+        food["source"] = "Local"
+        local_results.append(food)
+
+    # External results are supplementary only. The frontend marks them as
+    # non-selectable until USDA meal logging has its own safe server-side flow.
+    usda_results = search_usda_foods(query, limit=6)
+    usda_results = [
+        food for food in usda_results
+        if usda_food_matches_diet(food.get("name", ""), dietary_preference)
+    ]
+    return jsonify(local_results + usda_results)
+
 
 
 @app.route("/meals/new", methods=("GET", "POST"))
