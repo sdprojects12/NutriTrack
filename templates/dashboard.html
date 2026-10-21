@@ -28,6 +28,44 @@
   </div>
 </div>
 
+{% if gemini_enabled %}<section class="card gemini-panel" aria-labelledby="gemini-dashboard-title">
+  <div class="gemini-panel-header">
+    <div>
+      <h2 id="gemini-dashboard-title" class="section-title">Personalized meal ideas</h2>
+      <p class="section-sub">Use your {{ general_goal }} goal and saved dietary preference to rank recipes that already pass your local allergy and diet filters.</p>
+    </div>
+    {% if gemini_enabled and gemini_configured %}<form method="post" action="{{ url_for('dashboard') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-primary">
+        Get Gemini ideas
+      </button>
+    </form>
+    {% else %}<p class="section-sub">Add <code>GEMINI_API_KEY</code> to your local <code>.env</code> file to enable Gemini.</p>{% endif %}
+  </div>
+  <p class="gemini-privacy-note">When you request ideas, NutriTrack sends Gemini your dietary preference, nutrition goal, and the filtered recipe options with their ingredients and database nutrition. It does not send your name, age, height, weight, allergy list, or meal history. Unpaid Gemini API usage may be used to improve Google products; see the <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">Gemini API terms</a>. AI suggestions are not medical advice.</p>
+  {% if ai_error %}<p class="gemini-error" role="status">{{ ai_error }}</p>{% endif %}
+  {% if ai_recommendations %}
+  <div class="gemini-picks-grid">
+    {% for pick in ai_recommendations %}
+    <article class="gemini-pick">
+      <div class="recipe-card-header">
+        <span class="recipe-name">{{ pick['recipe']['name'] }}</span>
+        <span class="recipe-meal-badge">{{ pick['recipe']['meal_type'] }}</span>
+      </div>
+      <p class="recipe-text">{{ pick['reason'] }}</p>
+      {% if pick['recipe']['calories'] is not none %}
+      <p class="recipe-nutrition">
+        {{ pick['recipe']['calories'] | round(0) | int }} kcal ·
+        {{ pick['recipe']['protein'] | round(1) }} g protein
+      </p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  <a href="{{ url_for('suggestions') }}" class="btn btn-ghost btn-sm">See all meal suggestions</a>
+  {% endif %}
+</section>{% endif %}
+
 <h2 class="section-title">Today's meals</h2>
 <div class="meals-grid">
   {% for meal_type in meal_types %}

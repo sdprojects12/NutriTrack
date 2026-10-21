@@ -15,6 +15,23 @@
   {% endfor %}
 </div>
 
+{% if gemini_enabled %}<section class="card gemini-panel gemini-panel-compact">
+  <div class="gemini-panel-header">
+    <div>
+      <h2 class="section-title">Personalize this list</h2>
+      <p class="section-sub">Gemini ranks your already-filtered recipes for your {{ dietary_preference }} preference and {{ general_goal }} goal.</p>
+    </div>
+    {% if gemini_enabled and gemini_configured %}<form method="post" action="{{ url_for('suggestions') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="type" value="{{ selected_type }}">
+      <button type="submit" class="btn btn-primary">Get Gemini picks</button>
+    </form>
+    {% else %}<p class="section-sub">Add <code>GEMINI_API_KEY</code> to your local <code>.env</code> file to enable Gemini.</p>{% endif %}
+  </div>
+  <p class="gemini-privacy-note">On request, Gemini receives your dietary preference, nutrition goal, and filtered recipe names, ingredients, and database nutrition. It does not receive your name, age, height, weight, allergy list, or meal history. Unpaid Gemini API usage may be used to improve Google products; see the <a href="https://ai.google.dev/gemini-api/terms" target="_blank" rel="noopener">Gemini API terms</a>. AI suggestions are not medical advice.</p>
+  {% if ai_error %}<p class="gemini-error" role="status">{{ ai_error }}</p>{% endif %}
+</section>{% endif %}
+
 {% if recipes %}
 <div class="recipe-grid">
   {% for recipe in recipes %}
@@ -24,6 +41,9 @@
       <span class="recipe-meal-badge">{{ recipe['meal_type'] }}</span>
     </div>
     <p class="recipe-description">{{ recipe['description'] }}</p>
+    {% if recipe['id'] in ai_reasons %}
+    <p class="gemini-reason"><strong>Gemini pick:</strong> {{ ai_reasons[recipe['id']] }}</p>
+    {% endif %}
 
     <p class="recipe-section-label">Ingredients</p>
     <p class="recipe-text">{{ recipe['ingredients'] }}</p>

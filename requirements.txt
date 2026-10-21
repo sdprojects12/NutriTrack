@@ -4,3 +4,4 @@ openpyxl>=3.1
 Authlib>=1.9.1
 python-dotenv>=1.0
 requests>=2.31
+google-genai>=2.31.0

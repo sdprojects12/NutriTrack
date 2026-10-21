@@ -25,7 +25,8 @@
     <div class="form-grid">
       <div class="field-group">
         <label for="age">Age</label>
-        <input type="number" id="age" name="age" min="1" max="120" required
+        <p class="field-hint">NutriTrack is currently available to adults aged 18 and over.</p>
+        <input type="number" id="age" name="age" min="18" max="120" required
                value="{{ profile['age'] or '' }}" placeholder="e.g. 20">
       </div>
       <div class="field-group">

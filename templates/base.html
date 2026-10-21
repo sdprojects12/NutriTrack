@@ -49,7 +49,16 @@
             <span>Dark mode</span>
             <input id="dark-mode-toggle" type="checkbox" role="switch">
           </label>
-          <p class="settings-hint">Saved on this device</p>
+          <form id="gemini-setting-form" method="post" action="{{ url_for('update_gemini_setting') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="return_to" value="{{ request.endpoint if request.endpoint in ('dashboard', 'suggestions') else 'dashboard' }}">
+            {% if session.get('gemini_enabled', true) %}<input type="hidden" name="enabled" value="1">{% endif %}
+            <label class="settings-toggle" for="gemini-toggle">
+              <span>Gemini suggestions</span>
+              <input id="gemini-toggle" type="checkbox" role="switch" {% if session.get('gemini_enabled', true) %}checked{% endif %}>
+            </label>
+          </form>
+          <p class="settings-hint">Gemini preference saved for this session</p>
         </div>
       </details>
       <a href="{{ url_for('logout') }}" class="btn btn-ghost btn-sm">Logout</a>
@@ -75,17 +84,24 @@
 <script>
 (function () {
   var toggle = document.getElementById('dark-mode-toggle');
-  if (!toggle) return;
   var menu = document.querySelector('.settings-menu');
   var root = document.documentElement;
-  try {
-    toggle.checked = localStorage.getItem('nutritrack-theme') === 'dark';
-  } catch (error) {}
-  toggle.addEventListener('change', function () {
-    var theme = toggle.checked ? 'dark' : 'light';
-    root.dataset.theme = theme;
-    try { localStorage.setItem('nutritrack-theme', theme); } catch (error) {}
-  });
+  if (toggle) {
+    try {
+      toggle.checked = localStorage.getItem('nutritrack-theme') === 'dark';
+    } catch (error) {}
+    toggle.addEventListener('change', function () {
+      var theme = toggle.checked ? 'dark' : 'light';
+      root.dataset.theme = theme;
+      try { localStorage.setItem('nutritrack-theme', theme); } catch (error) {}
+    });
+  }
+  var geminiToggle = document.getElementById('gemini-toggle');
+  var geminiForm = document.getElementById('gemini-setting-form');
+  if (geminiToggle && geminiForm) {
+    geminiToggle.addEventListener('change', function () { geminiForm.submit(); });
+  }
+  if (!menu) return;
   document.addEventListener('click', function (event) {
     if (menu.open && !menu.contains(event.target)) menu.open = false;
   });
