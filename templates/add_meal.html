@@ -32,7 +32,7 @@
       <thead>
         <tr>
           <th>Food</th>
-          <th>Qty (servings)</th>
+          <th>Quantity</th>
           <th>Calories</th>
           <th>Protein</th>
           <th>Carbs</th>
@@ -105,7 +105,7 @@
       var isUSDA = f.source === 'USDA';
       info.innerHTML =
         '<span class="search-result-name">' + escapeHtml(f.name) +
-        ' <small>(' + (isUSDA ? 'USDA' : 'NutriTrack') + ')</small></span>' +
+        ' <small>(' + (isUSDA ? 'USDA' : 'INDB') + ')</small></span>' +
         '<span class="search-result-meta">' + escapeHtml(f.serving_size || 'per serving') +
         ' \u00b7 ' + Math.round(Number(f.calories) || 0) + ' kcal</span>';
       row.appendChild(info);
@@ -193,7 +193,17 @@
       var tr = document.createElement('tr');
 
       var tdName = document.createElement('td');
-      tdName.textContent = item.name;
+      var foodName = document.createElement('span');
+      foodName.textContent = item.name;
+      tdName.appendChild(foodName);
+      var servingNote = document.createElement('small');
+      servingNote.className = 'selected-food-meta';
+      var servingText = item.serving_size || 'per serving';
+      if (item.source === 'USDA' && item.serving_grams) {
+        servingText += ' (' + item.serving_grams + ' g)';
+      }
+      servingNote.textContent = (item.source === 'USDA' ? 'USDA' : 'INDB') + ' · ' + servingText;
+      tdName.appendChild(servingNote);
       tr.appendChild(tdName);
 
       var tdQty = document.createElement('td');

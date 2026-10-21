@@ -9,6 +9,10 @@
   </div>
 
   <h2 class="auth-heading">Create your account</h2>
+  <a class="btn btn-google btn-block" href="{{ url_for('google_login') }}">
+    <span class="google-mark" aria-hidden="true">G</span> Sign up with Google
+  </a>
+  <div class="auth-divider"><span>or</span></div>
   <form method="post" class="auth-form">
     <label for="name">Full name</label>
     <input type="text" id="name" name="name" placeholder="Priya Sharma" required autofocus>

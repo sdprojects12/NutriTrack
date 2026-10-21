@@ -9,6 +9,10 @@
   </div>
 
   <h2 class="auth-heading">Welcome back</h2>
+  <a class="btn btn-google btn-block" href="{{ url_for('google_login') }}">
+    <span class="google-mark" aria-hidden="true">G</span> Continue with Google
+  </a>
+  <div class="auth-divider"><span>or</span></div>
   <form method="post" class="auth-form">
     <label for="email">Email</label>
     <input type="email" id="email" name="email" placeholder="you@example.com" required autofocus>

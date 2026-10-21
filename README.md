@@ -41,6 +41,17 @@ The application focuses on Indian foods and uses data from the Indian Nutrient D
 
 - Indian Nutrient Databank (INDB)
 
+## Google sign-in setup
+
+Google sign-in uses OpenID Connect and requests only the user's basic profile and verified email; it does not access Gmail. To enable it:
+
+1. Install the project dependencies with `pip install -r requirements.txt`.
+2. Create a Google OAuth web client in Google Cloud Console and add the app callback URL as an authorized redirect URI. For local development, use `http://127.0.0.1:5000/auth/google/callback`.
+3. Put `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the local `.env` file. Keep `.env` private and out of Git.
+4. Apply `migrations/002_google_identities.sql` to the existing database as an additive migration. Back up the database first; do not run schema initialization against it.
+
+An existing password account must be signed into before linking Google from the profile page. This avoids silently merging accounts based only on matching email addresses.
+
 ## How It Works
 
 NutriTrack follows a simple client-server architecture.

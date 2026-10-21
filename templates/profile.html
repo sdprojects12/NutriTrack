@@ -14,6 +14,12 @@
 </div>
 
 <div class="card">
+  {% if not onboarding %}
+  <div class="google-link-row">
+    <div><strong>Google sign-in</strong><p class="section-sub">Connect Google to sign in without your NutriTrack password.</p></div>
+    <a class="btn btn-secondary" href="{{ url_for('google_link') }}">Link Google</a>
+  </div>
+  {% endif %}
   <form method="post" class="form" id="profile-form">
     <h2 class="section-title">Basic details</h2>
     <div class="form-grid">

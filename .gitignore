@@ -4,6 +4,7 @@ __pycache__/
 .env
 *.db
 nutritrack_v2.db.pre_usda_backup
+nutritrack_v2.db.pre_google_login_backup
 schema_v2.sql
 .vscode/
 *.xlsx

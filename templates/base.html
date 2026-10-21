@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}NutriTrack{% endblock %}</title>
+<script>
+  try {
+    if (localStorage.getItem('nutritrack-theme') === 'dark') {
+      document.documentElement.dataset.theme = 'dark';
+    }
+  } catch (error) {}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -19,12 +26,32 @@
     <div class="nav-links">
       <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.endpoint == 'dashboard' }}">Dashboard</a>
       <a href="{{ url_for('meal_history') }}" class="{{ 'active' if request.endpoint == 'meal_history' }}">History</a>
-      <a href="{{ url_for('profile') }}" class="{{ 'active' if request.endpoint == 'profile' }}">Profile</a>
       <a href="{{ url_for('add_meal') }}" class="{{ 'active' if request.endpoint in ('add_meal', 'view_meal') }}">Add Meal</a>
       <a href="{{ url_for('suggestions') }}" class="{{ 'active' if request.endpoint == 'suggestions' }}">Suggestions</a>
     </div>
     <div class="nav-user">
-      <span class="nav-username">{{ g.user['name'] }}</span>
+      <a href="{{ url_for('profile') }}"
+         class="nav-username {{ 'active' if request.endpoint == 'profile' }}"
+         {% if request.endpoint == 'profile' %}aria-current="page"{% endif %}>
+        {{ g.user['name'] }}
+      </a>
+      <details class="settings-menu">
+        <summary class="settings-button" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12.22 2h-.44a2 2 0 0 0-1.99 1.76l-.2 1.44a8 8 0 0 0-1.77 1.02l-1.36-.58a2 2 0 0 0-2.53.87l-.22.38a2 2 0 0 0 .54 2.62l1.16.9a8 8 0 0 0 0 2.04l-1.16.9a2 2 0 0 0-.54 2.62l.22.38a2 2 0 0 0 2.53.87l1.36-.58c.54.42 1.13.76 1.77 1.02l.2 1.44A2 2 0 0 0 11.78 22h.44a2 2 0 0 0 1.99-1.76l.2-1.44a8 8 0 0 0 1.77-1.02l1.36.58a2 2 0 0 0 2.53-.87l.22-.38a2 2 0 0 0-.54-2.62l-1.16-.9a8 8 0 0 0 0-2.04l1.16-.9a2 2 0 0 0 .54-2.62l-.22-.38a2 2 0 0 0-2.53-.87l-1.36.58a8 8 0 0 0-1.77-1.02l-.2-1.44A2 2 0 0 0 12.22 2Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span class="sr-only">Settings</span>
+        </summary>
+        <div class="settings-panel">
+          <p class="settings-title">Settings</p>
+          <label class="settings-toggle" for="dark-mode-toggle">
+            <span>Dark mode</span>
+            <input id="dark-mode-toggle" type="checkbox" role="switch">
+          </label>
+          <p class="settings-hint">Saved on this device</p>
+        </div>
+      </details>
       <a href="{{ url_for('logout') }}" class="btn btn-ghost btn-sm">Logout</a>
     </div>
   </div>
@@ -44,6 +71,32 @@
 
   {% block content %}{% endblock %}
 </main>
+
+<script>
+(function () {
+  var toggle = document.getElementById('dark-mode-toggle');
+  if (!toggle) return;
+  var menu = document.querySelector('.settings-menu');
+  var root = document.documentElement;
+  try {
+    toggle.checked = localStorage.getItem('nutritrack-theme') === 'dark';
+  } catch (error) {}
+  toggle.addEventListener('change', function () {
+    var theme = toggle.checked ? 'dark' : 'light';
+    root.dataset.theme = theme;
+    try { localStorage.setItem('nutritrack-theme', theme); } catch (error) {}
+  });
+  document.addEventListener('click', function (event) {
+    if (menu.open && !menu.contains(event.target)) menu.open = false;
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && menu.open) {
+      menu.open = false;
+      menu.querySelector('summary').focus();
+    }
+  });
+})();
+</script>
 
 </body>
 </html>

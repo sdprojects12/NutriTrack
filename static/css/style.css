@@ -18,6 +18,8 @@
   --danger-bg: #fdeceb;
   --success:   #1fa97c;
   --success-bg:#e7f8f0;
+  --success-line: #bfe9d5;
+  --danger-line: #f4c8c4;
   --radius-lg: 12px;
   --radius-md: 8px;
   --radius-sm: 6px;
@@ -25,6 +27,30 @@
   --shadow-md: 0 4px 12px rgba(15, 42, 34, 0.08);
   --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-head: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --green-50: #1a3028;
+  --green-100: #244438;
+  --green-500: #36b989;
+  --green-600: #197956;
+  --green-700: #87dcbc;
+  --ink-900: #e8f0eb;
+  --ink-700: #c7d4cd;
+  --ink-500: #9eafa6;
+  --ink-300: #697c72;
+  --line: #35473e;
+  --bg: #111a16;
+  --surface: #1a2520;
+  --danger: #ff8585;
+  --danger-bg: #3a2424;
+  --danger-line: #704343;
+  --success: #55ce9c;
+  --success-bg: #1b3529;
+  --success-line: #315c46;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 5px 16px rgba(0, 0, 0, 0.28);
 }
 
 * { box-sizing: border-box; }
@@ -160,7 +186,63 @@ a:hover { color: var(--green-700); }
   gap: 12px;
 }
 
-.nav-username { font-weight: 600; font-size: 13px; color: var(--ink-700); }
+.nav-username {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-700);
+  white-space: nowrap;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.nav-username:hover,
+.nav-username.active { background: var(--green-100); color: var(--green-700); }
+.nav-username:focus-visible { outline: 2px solid var(--green-600); outline-offset: 2px; }
+
+.settings-menu { position: relative; }
+.settings-menu > summary { list-style: none; }
+.settings-menu > summary::-webkit-details-marker { display: none; }
+.settings-button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--ink-700);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.settings-button:hover,
+.settings-menu[open] .settings-button { background: var(--green-50); color: var(--green-700); }
+.settings-button:focus-visible { outline: 2px solid var(--green-600); outline-offset: 2px; }
+.settings-button svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.settings-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 220px;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+}
+.settings-title { margin: 0 0 10px; color: var(--ink-900); font-weight: 600; font-size: 13px; }
+.settings-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-700); font-size: 13px; cursor: pointer; }
+.settings-toggle input { width: 17px; height: 17px; accent-color: var(--green-600); }
+.settings-hint { margin-top: 8px; font-size: 11px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 /* ==========================================================================
    Buttons
@@ -201,7 +283,7 @@ a:hover { color: var(--green-700); }
 
 .btn-danger {
   background: transparent;
-  border-color: #f4c8c4;
+  border-color: var(--danger-line);
   color: var(--danger) !important;
 }
 .btn-danger:hover { background: var(--danger-bg); border-color: var(--danger); }
@@ -283,10 +365,28 @@ a:hover { color: var(--green-700); }
 .auth-form input:focus {
   border-color: var(--green-500);
   box-shadow: 0 0 0 3px rgba(31, 169, 124, 0.12);
-  background: #fff;
+  background: var(--surface);
 }
 
 .auth-form .btn { margin-top: 18px; }
+
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff;
+  color: #333;
+  border: 1px solid #dadce0;
+  text-decoration: none;
+  min-height: 42px;
+}
+.btn-google:hover { background: #f8f9fa; color: #222; }
+.google-mark { font-weight: 700; font-size: 18px; color: #4285f4; }
+.auth-divider { display: flex; align-items: center; gap: 12px; margin: 16px 0 8px; color: var(--ink-500); font-size: 12px; }
+.auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
+.google-link-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 20px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
+.google-link-row .section-sub { margin: 4px 0 0; }
 
 .auth-switch {
   text-align: center;
@@ -317,8 +417,8 @@ a:hover { color: var(--green-700); }
   border: 1px solid transparent;
 }
 
-.flash-success { background: var(--success-bg); color: var(--green-700); border-color: #bfe9d5; }
-.flash-error   { background: var(--danger-bg); color: var(--danger); border-color: #f4c8c4; }
+.flash-success { background: var(--success-bg); color: var(--green-700); border-color: var(--success-line); }
+.flash-error   { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-line); }
 
 /* ==========================================================================
    Section titles
@@ -496,7 +596,7 @@ a:hover { color: var(--green-700); }
 .field-group select:focus {
   border-color: var(--green-500);
   box-shadow: 0 0 0 3px rgba(31, 169, 124, 0.12);
-  background: #fff;
+  background: var(--surface);
 }
 
 /* Allergies */
@@ -550,7 +650,7 @@ a:hover { color: var(--green-700); }
 .food-search input:focus {
   border-color: var(--green-500);
   box-shadow: 0 0 0 3px rgba(31, 169, 124, 0.12);
-  background: #fff;
+  background: var(--surface);
 }
 
 .search-results {
@@ -607,6 +707,13 @@ a:hover { color: var(--green-700); }
   letter-spacing: 0.03em;
 }
 
+.selected-food-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-500);
+  font-size: 11px;
+}
+
 .qty-input {
   width: 68px;
   padding: 6px 8px;
@@ -621,7 +728,7 @@ a:hover { color: var(--green-700); }
 .qty-input:focus {
   border-color: var(--green-500);
   outline: none;
-  background: #fff;
+  background: var(--surface);
 }
 
 /* ==========================================================================

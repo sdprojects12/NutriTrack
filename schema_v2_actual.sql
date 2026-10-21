@@ -244,6 +244,19 @@ CREATE TABLE users (
     created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE user_identities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    provider TEXT NOT NULL,
+    provider_subject TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (provider, provider_subject),
+    UNIQUE (user_id, provider)
+);
+
+CREATE INDEX idx_user_identities_user_id ON user_identities(user_id);
+
 CREATE INDEX idx_food_aliases_alias ON food_aliases(alias);
 
 CREATE INDEX idx_food_allergens_allergen_id  ON food_allergens(allergen_id);

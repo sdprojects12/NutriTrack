@@ -4,6 +4,7 @@ import sqlite3
 import time
 from datetime import date
 from functools import wraps
+from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 import requests
 from flask import (
@@ -20,6 +21,16 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "local-development-key-change-before-deployment")
 app.config["DATABASE"] = DATABASE
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+
+oauth = OAuth(app)
+if os.environ.get("GOOGLE_CLIENT_ID") and os.environ.get("GOOGLE_CLIENT_SECRET"):
+    oauth.register(
+        name="google",
+        client_id=os.environ["GOOGLE_CLIENT_ID"],
+        client_secret=os.environ["GOOGLE_CLIENT_SECRET"],
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
+    )
 
 
 @app.after_request
@@ -63,7 +74,7 @@ DIET_COMPATIBILITY = {
 }
 
 # Endpoints reachable by a logged-in user even with an incomplete profile.
-PROFILE_SETUP_EXEMPT_ENDPOINTS = {"profile", "logout", "static", None}
+PROFILE_SETUP_EXEMPT_ENDPOINTS = {"profile", "logout", "google_callback", "static", None}
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +145,19 @@ def is_profile_complete(db, user_id):
         "SELECT 1 FROM user_allergies WHERE user_id = ? LIMIT 1", (user_id,)
     ).fetchone()
     return has_allergy_choice is not None
+
+
+def google_client():
+    client = oauth.create_client("google")
+    if client is None:
+        flash("Google sign-in is not configured yet. Add the Google OAuth settings to your .env file.", "error")
+    return client
+
+
+def google_identity_table_exists(db):
+    return db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_identities'"
+    ).fetchone() is not None
 
 
 @app.before_request
@@ -241,6 +265,110 @@ def login():
         flash(error, "error")
 
     return render_template("login.html")
+
+
+@app.route("/auth/google")
+def google_login():
+    client = google_client()
+    if client is None:
+        return redirect(url_for("login"))
+    if not google_identity_table_exists(get_db()):
+        flash("Google sign-in needs the included database migration applied first.", "error")
+        return redirect(url_for("login"))
+    session.pop("google_link_user_id", None)
+    return client.authorize_redirect(url_for("google_callback", _external=True))
+
+
+@app.route("/auth/google/link")
+@login_required
+def google_link():
+    client = google_client()
+    if client is None:
+        return redirect(url_for("profile"))
+    if not google_identity_table_exists(get_db()):
+        flash("Google sign-in needs the included database migration applied first.", "error")
+        return redirect(url_for("profile"))
+    session["google_link_user_id"] = g.user["id"]
+    return client.authorize_redirect(url_for("google_callback", _external=True))
+
+
+@app.route("/auth/google/callback")
+def google_callback():
+    client = google_client()
+    if client is None:
+        return redirect(url_for("login"))
+    db = get_db()
+    if not google_identity_table_exists(db):
+        flash("Google sign-in needs the included database migration applied first.", "error")
+        return redirect(url_for("login"))
+
+    try:
+        token = client.authorize_access_token()
+        claims = token.get("userinfo") or {}
+    except Exception:
+        app.logger.exception("Google sign-in callback failed")
+        flash("Google sign-in could not be completed. Please try again.", "error")
+        return redirect(url_for("login"))
+
+    subject = claims.get("sub")
+    email = (claims.get("email") or "").strip().lower()
+    name = (claims.get("name") or "").strip() or email.partition("@")[0]
+    if not subject or not email or claims.get("email_verified") is not True:
+        flash("Google did not provide a verified email address. Please try another account.", "error")
+        return redirect(url_for("login"))
+
+    linked_user_id = session.pop("google_link_user_id", None)
+    identity = db.execute(
+        "SELECT user_id FROM user_identities WHERE provider = 'google' AND provider_subject = ?",
+        (subject,),
+    ).fetchone()
+    if linked_user_id is not None:
+        if g.user is None or g.user["id"] != linked_user_id:
+            flash("Your session changed during Google linking. Sign in and try again.", "error")
+            return redirect(url_for("login"))
+        if identity and identity["user_id"] != linked_user_id:
+            flash("That Google account is already linked to another NutriTrack account.", "error")
+            return redirect(url_for("profile"))
+        db.execute(
+            "INSERT OR IGNORE INTO user_identities (user_id, provider, provider_subject) VALUES (?, 'google', ?)",
+            (linked_user_id, subject),
+        )
+        db.commit()
+        flash("Google sign-in linked to your account.", "success")
+        return redirect(url_for("profile"))
+
+    if identity:
+        user = db.execute("SELECT id, name FROM users WHERE id = ?", (identity["user_id"],)).fetchone()
+        if user is None:
+            flash("This Google sign-in is not connected to an active account.", "error")
+            return redirect(url_for("login"))
+    else:
+        existing_user = db.execute("SELECT id FROM users WHERE email = ?", (email,)).fetchone()
+        if existing_user:
+            flash("An account already uses this email. Log in with your password, then link Google from your profile.", "error")
+            return redirect(url_for("login"))
+        # Existing schema requires a password hash. This random value is
+        # discarded and cannot be used as a password by the user.
+        cursor = db.execute(
+            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+            (name, email, generate_password_hash(os.urandom(32).hex())),
+        )
+        user_id = cursor.lastrowid
+        db.execute("INSERT INTO profiles (user_id, dietary_preference) VALUES (?, ?)", (user_id, "Vegetarian"))
+        db.execute(
+            "INSERT INTO user_identities (user_id, provider, provider_subject) VALUES (?, 'google', ?)",
+            (user_id, subject),
+        )
+        db.commit()
+        user = db.execute("SELECT id, name FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    session.clear()
+    session["user_id"] = user["id"]
+    if is_profile_complete(db, user["id"]):
+        flash(f"Welcome back, {user['name']}!", "success")
+        return redirect(url_for("dashboard"))
+    flash(f"Welcome, {user['name']}! Let's finish setting up your profile.", "success")
+    return redirect(url_for("profile"))
 
 
 @app.route("/logout")
