@@ -186,6 +186,8 @@ a:hover { color: var(--green-700); }
   gap: 12px;
 }
 
+.logout-form { margin: 0; }
+
 .nav-username {
   padding: 7px 10px;
   border-radius: var(--radius-sm);
@@ -265,6 +267,14 @@ a:hover { color: var(--green-700); }
 }
 
 .btn:active { transform: translateY(1px); }
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--green-500);
+  outline-offset: 2px;
+}
 
 .btn-primary {
   background: var(--green-600);
@@ -273,6 +283,16 @@ a:hover { color: var(--green-700); }
 }
 .btn-primary:hover { background: var(--green-700); color: #fff; }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.btn-secondary {
+  background: var(--green-50);
+  border-color: var(--green-100);
+  color: var(--green-700) !important;
+}
+.btn-secondary:hover {
+  background: var(--green-100);
+  border-color: var(--green-500);
+}
 
 .btn-ghost {
   background: transparent;
@@ -387,6 +407,7 @@ a:hover { color: var(--green-700); }
 .auth-divider::before, .auth-divider::after { content: ''; height: 1px; flex: 1; background: var(--line); }
 .google-link-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 0 20px; margin-bottom: 20px; border-bottom: 1px solid var(--line); }
 .google-link-row .section-sub { margin: 4px 0 0; }
+.google-link-copy { min-width: 0; }
 
 .auth-switch {
   text-align: center;
@@ -565,10 +586,17 @@ a:hover { color: var(--green-700); }
   gap: 14px 18px;
 }
 
+.profile-card { padding: 28px; }
+.profile-section { margin-bottom: 14px; }
+.profile-section .section-title { margin-bottom: 4px; }
+.profile-section .section-sub { margin-bottom: 0; }
+.profile-section-allergies { margin-top: 28px; }
+
 .field-group {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto minmax(17px, auto) auto;
   gap: 5px;
+  align-content: start;
 }
 
 .field-group-sm { max-width: 260px; }
@@ -577,6 +605,18 @@ a:hover { color: var(--green-700); }
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-700);
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-500);
+}
+
+.profile-card .field-group:not(:has(.field-hint))::after {
+  content: "";
+  min-height: 17px;
 }
 
 .field-group input,
@@ -610,7 +650,8 @@ a:hover { color: var(--green-700); }
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 9px 11px;
+  min-height: 42px;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: var(--bg);
@@ -620,6 +661,10 @@ a:hover { color: var(--green-700); }
 }
 
 .allergy-chip input { accent-color: var(--green-600); }
+.allergy-chip:focus-within {
+  outline: 2px solid var(--green-500);
+  outline-offset: 2px;
+}
 
 .allergy-chip:has(input:checked) {
   border-color: var(--green-500);
@@ -673,6 +718,7 @@ a:hover { color: var(--green-700); }
   background: var(--surface);
 }
 
+.search-result-row button { flex-shrink: 0; }
 .search-result-info { display: flex; flex-direction: column; gap: 1px; }
 .search-result-name { font-weight: 600; font-size: 13px; color: var(--ink-900); }
 .search-result-meta { font-size: 12px; color: var(--ink-500); }
@@ -888,4 +934,13 @@ a:hover { color: var(--green-700); }
   .meals-grid { grid-template-columns: 1fr; }
   .daily-summary { grid-template-columns: 1fr 1fr; }
   .nutrition-bar { flex-direction: column; gap: 4px; }
+  .profile-card { padding: 20px 16px; }
+  .google-link-row { align-items: flex-start; flex-direction: column; }
+  .google-link-row .btn { width: 100%; }
+  .page-header { align-items: flex-start; }
+  .page-header > .btn { width: 100%; }
+  .search-result-row { flex-wrap: wrap; }
+  .search-result-info { min-width: 0; flex: 1 1 100%; }
+  .search-result-row .usda-serving-select,
+  .search-result-row button { flex: 1 1 auto; }
 }

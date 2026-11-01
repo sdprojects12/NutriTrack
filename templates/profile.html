@@ -13,15 +13,22 @@
   </div>
 </div>
 
-<div class="card">
+<div class="card profile-card">
   {% if not onboarding %}
   <div class="google-link-row">
-    <div><strong>Google sign-in</strong><p class="section-sub">Connect Google to sign in without your NutriTrack password.</p></div>
+    <div class="google-link-copy">
+      <strong>Google sign-in</strong>
+      <p class="section-sub">Connect Google to sign in without your NutriTrack password.</p>
+    </div>
     <a class="btn btn-secondary" href="{{ url_for('google_link') }}">Link Google</a>
   </div>
   {% endif %}
   <form method="post" class="form" id="profile-form">
-    <h2 class="section-title">Basic details</h2>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="profile-section">
+      <h2 class="section-title">Basic details</h2>
+      <p class="section-sub">These details help personalize your nutrition tracking experience.</p>
+    </div>
     <div class="form-grid">
       <div class="field-group">
         <label for="age">Age</label>
@@ -59,7 +66,9 @@
       </div>
     </div>
 
-    <h2 class="section-title">Allergies</h2>
+    <div class="profile-section profile-section-allergies">
+      <h2 class="section-title">Allergies</h2>
+    </div>
     <p class="section-sub">Select any that apply, or choose "No Known Allergies" — these filter foods and meal suggestions.</p>
     <div class="allergy-grid">
       {% for allergy in all_allergies %}

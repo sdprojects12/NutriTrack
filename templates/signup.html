@@ -14,6 +14,7 @@
   </a>
   <div class="auth-divider"><span>or</span></div>
   <form method="post" class="auth-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <label for="name">Full name</label>
     <input type="text" id="name" name="name" placeholder="Priya Sharma" required autofocus>
 

@@ -1,5 +1,7 @@
 import os
 import copy
+import hmac
+import math
 import secrets
 import sqlite3
 import time
@@ -19,9 +21,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "nutritrack_v2.db")
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY", "local-development-key-change-before-deployment")
+app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config["DATABASE"] = DATABASE
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"
 
 
 def csrf_token():
@@ -50,6 +55,10 @@ def disable_personal_page_caching(response):
     # Logged-in pages and search results contain profile and health data.
     if request.endpoint != "static":
         response.headers["Cache-Control"] = "no-store, private"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     return response
 
 # Stage 2 constants — kept in one place so the profile form and its
@@ -121,7 +130,8 @@ def close_db(exception=None):
 def login_required(view):
     @wraps(view)
     def wrapped_view(*args, **kwargs):
-        if session.get("user_id") is None:
+        if g.get("user") is None:
+            session.clear()
             flash("Please log in to continue.", "error")
             return redirect(url_for("login"))
         return view(*args, **kwargs)
@@ -137,6 +147,16 @@ def load_logged_in_user():
         g.user = get_db().execute(
             "SELECT * FROM users WHERE id = ?", (user_id,)
         ).fetchone()
+
+
+@app.before_request
+def validate_csrf_token():
+    if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return
+    expected = session.get("_csrf_token")
+    submitted = request.form.get("_csrf_token", "")
+    if not expected or not submitted or not hmac.compare_digest(submitted, expected):
+        abort(400, description="Invalid or missing CSRF token.")
 
 
 def is_profile_complete(db, user_id):
@@ -221,8 +241,12 @@ def signup():
         error = None
         if not name:
             error = "Name is required."
+        elif len(name) > 120:
+            error = "Name must be 120 characters or fewer."
         elif not email:
             error = "Email is required."
+        elif len(email) > 254 or "@" not in email:
+            error = "Please enter a valid email address."
         elif not password or len(password) < 6:
             error = "Password must be at least 6 characters long."
         elif password != confirm:
@@ -393,7 +417,7 @@ def google_callback():
     return redirect(url_for("profile"))
 
 
-@app.route("/logout")
+@app.route("/logout", methods=("POST",))
 def logout():
     session.clear()
     flash("You have been logged out.", "success")
@@ -485,6 +509,16 @@ def profile():
             error = 'Please select your allergies, or choose "No Known Allergies".'
 
         if error is None:
+            try:
+                submitted_ids = {int(value) for value in submitted_allergy_ids}
+            except (TypeError, ValueError):
+                submitted_ids = set()
+                error = "Please choose valid allergy options."
+            valid_allergy_ids = {row["id"] for row in all_allergies}
+            if error is None and not submitted_ids.issubset(valid_allergy_ids):
+                error = "Please choose valid allergy options."
+
+        if error is None:
             db.execute(
                 """UPDATE profiles
                    SET age = ?, height_cm = ?, weight_kg = ?,
@@ -495,7 +529,7 @@ def profile():
                  general_goal, user_id),
             )
             db.execute("DELETE FROM user_allergies WHERE user_id = ?", (user_id,))
-            for allergy_id in submitted_allergy_ids:
+            for allergy_id in submitted_ids:
                 db.execute(
                     "INSERT INTO user_allergies (user_id, allergen_id) VALUES (?, ?)",
                     (user_id, allergy_id),
@@ -518,7 +552,9 @@ def profile():
             "dietary_preference": dietary_preference,
             "general_goal": general_goal,
         }
-        selected_allergy_ids = {int(i) for i in submitted_allergy_ids}
+        selected_allergy_ids = {
+            int(i) for i in submitted_allergy_ids if str(i).isdigit()
+        }
 
     return render_template(
         "profile.html",
@@ -982,7 +1018,7 @@ def add_meal():
                 except ValueError:
                     error = "Quantity must be a number."
                     break
-                if not (0 < quantity <= 50):
+                if not (math.isfinite(quantity) and 0 < quantity <= 50):
                     error = "Quantity must be greater than 0 and at most 50 servings."
                     break
                 parsed_items.append((food_id, quantity))
@@ -1000,7 +1036,11 @@ def add_meal():
                 except (ValueError, TypeError):
                     error = "Invalid USDA food selection."
                     break
-                if fdc_id <= 0 or not (0 < quantity <= 50) or not (0 < grams <= 5000):
+                if (
+                    fdc_id <= 0
+                    or not (math.isfinite(quantity) and 0 < quantity <= 50)
+                    or not (math.isfinite(grams) and 0 < grams <= 5000)
+                ):
                     error = "USDA quantity must be between 0 and 50 servings."
                     break
                 parsed_usda_items.append((fdc_id, quantity, grams, label[:120]))
@@ -1008,15 +1048,24 @@ def add_meal():
         if error is None and parsed_items:
             food_id_set = {food_id for food_id, _ in parsed_items}
             placeholders = ",".join("?" * len(food_id_set))
-            valid_ids = {
-                row["id"]
-                for row in db.execute(
-                    f"SELECT id FROM foods WHERE id IN ({placeholders})",
-                    tuple(food_id_set),
-                ).fetchall()
-            }
+            food_rows = db.execute(
+                f"SELECT id, dietary_type FROM foods WHERE id IN ({placeholders})",
+                tuple(food_id_set),
+            ).fetchall()
+            valid_ids = {row["id"] for row in food_rows}
             if valid_ids != food_id_set:
                 error = "One or more selected foods could not be found."
+            else:
+                profile = db.execute(
+                    "SELECT dietary_preference FROM profiles WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                compatible_diets = DIET_COMPATIBILITY.get(
+                    profile["dietary_preference"] if profile else "Vegetarian",
+                    ["Vegan", "Vegetarian"],
+                )
+                if any(row["dietary_type"] not in compatible_diets for row in food_rows):
+                    error = "One or more foods conflict with your dietary preference."
 
         if error is None and parsed_items:
             active_allergy_ids = [row["allergen_id"] for row in db.execute(
@@ -1359,4 +1408,4 @@ def suggestions():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")

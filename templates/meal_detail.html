@@ -8,6 +8,7 @@
   </div>
   <form method="post" action="{{ url_for('delete_meal', meal_id=meal['id']) }}"
         onsubmit="return confirm('Delete this meal? This cannot be undone.');">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-danger btn-sm">Delete meal</button>
   </form>
 </div>

@@ -10,6 +10,7 @@
 
 <div class="card">
   <form method="post" id="add-meal-form">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="field-group field-group-sm">
       <label for="meal_type">Meal type</label>
       <select id="meal_type" name="meal_type" required>
@@ -21,6 +22,7 @@
 
     <h2 class="section-title">Search foods</h2>
     <div class="food-search">
+      <label class="sr-only" for="food-search-input">Search foods</label>
       <input type="text" id="food-search-input" placeholder="Search e.g. rice, dal, paneer..." autocomplete="off">
     </div>
     <p id="food-search-status" class="search-status" aria-live="polite"></p>
