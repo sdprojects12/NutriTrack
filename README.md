@@ -17,8 +17,7 @@ The application focuses on Indian foods and uses data from the Indian Nutrient D
 - Quantity-based nutrition calculation
 - Calories, protein, carbohydrates, fat, and fiber tracking
 - Detailed meal history
-- Rule-based meal suggestions
-- Optional Gemini-personalized meal suggestions for adult users
+- Rule-based meal suggestions filtered by dietary preferences and allergies
 - Responsive web interface
 
 ## Technology Stack
@@ -52,10 +51,6 @@ Google sign-in uses OpenID Connect and requests only the user's basic profile an
 4. Apply `migrations/002_google_identities.sql` to the existing database as an additive migration. Back up the database first; do not run schema initialization against it.
 
 An existing password account must be signed into before linking Google from the profile page. This avoids silently merging accounts based only on matching email addresses.
-
-## Gemini suggestions
-
-The optional Gemini feature is available to users aged 18 and over. Set `GEMINI_API_KEY` in the local `.env` file to enable it. The dashboard and suggestions page call Gemini only after the user clicks the personalization button. The request contains the user's dietary preference and nutrition goal plus locally diet- and allergen-filtered recipes with structured ingredients and database nutrition; it excludes the user's name, age, height, weight, allergy list, and meal history. Gemini can rank known recipe IDs and explain the picks, but it cannot add foods or nutrition values. Review the [Gemini API terms](https://ai.google.dev/gemini-api/terms) before using real user data; unpaid API usage may be used to improve Google's products.
 
 ## How It Works
 
