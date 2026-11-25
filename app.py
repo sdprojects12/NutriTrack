@@ -14,19 +14,27 @@ from flask import (
     Flask, g, render_template, request, redirect, url_for, session, flash, jsonify, abort
 )
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "nutritrack_v2.db")
+DATABASE = os.environ.get("DATABASE_PATH", os.path.join(BASE_DIR, "nutritrack_v2.db"))
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
+_secret_key = os.environ.get("FLASK_SECRET_KEY")
+if not _secret_key and os.environ.get("APP_ENV", "development").lower() == "production":
+    raise RuntimeError("FLASK_SECRET_KEY must be set when APP_ENV=production")
+app.config["SECRET_KEY"] = _secret_key or "local-development-only-change-me"
 app.config["DATABASE"] = DATABASE
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = os.environ.get("FLASK_ENV") == "production"
+app.config["SESSION_COOKIE_SECURE"] = os.environ.get("APP_ENV", "development").lower() == "production"
+app.config["PREFERRED_URL_SCHEME"] = "https" if app.config["SESSION_COOKIE_SECURE"] else "http"
+if os.environ.get("TRUST_PROXY", "0") == "1":
+    # Enable only behind exactly one trusted reverse proxy.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 
 def csrf_token():
@@ -105,6 +113,10 @@ PROFILE_SETUP_EXEMPT_ENDPOINTS = {"profile", "logout", "google_callback", "stati
 
 def get_db():
     if "db" not in g:
+        if not os.path.isfile(app.config["DATABASE"]):
+            raise sqlite3.OperationalError(
+                "Configured database file is missing. Initialize a fresh database explicitly."
+            )
         g.db = sqlite3.connect(app.config["DATABASE"])
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
@@ -119,8 +131,8 @@ def close_db(exception=None):
 
 
 # The old init-db and seed-db commands intentionally are not registered here.
-# schema_v2.sql contains DROP TABLE statements and must NEVER be run against
-# the populated migrated database as part of normal application startup.
+# schema_v2_legacy_destructive.sql contains DROP TABLE statements and must
+# never be executed against any database.
 
 
 # ---------------------------------------------------------------------------
@@ -261,26 +273,52 @@ def signup():
                 error = f"An account with email '{email}' already exists."
 
         if error is None:
-            db.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                (name, email, generate_password_hash(password)),
-            )
-            db.commit()
-            user = db.execute(
-                "SELECT id FROM users WHERE email = ?", (email,)
-            ).fetchone()
-            # Create an empty profile row so later edits are simple UPDATEs.
-            db.execute(
-                "INSERT INTO profiles (user_id, dietary_preference) VALUES (?, ?)",
-                (user["id"], "Vegetarian"),
-            )
-            db.commit()
+            try:
+                with db:
+                    cursor = db.execute(
+                        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                        (name, email, generate_password_hash(password)),
+                    )
+                    db.execute(
+                        "INSERT INTO profiles (user_id, dietary_preference) VALUES (?, ?)",
+                        (cursor.lastrowid, "Vegetarian"),
+                    )
+            except sqlite3.IntegrityError:
+                flash("An account with that email could not be created.", "error")
+                return render_template("signup.html"), 409
             flash("Account created successfully. Please log in.", "success")
             return redirect(url_for("login"))
 
         flash(error, "error")
 
     return render_template("signup.html")
+
+
+@app.route("/health")
+def health():
+    try:
+        get_db().execute("SELECT 1").fetchone()
+    except sqlite3.Error:
+        app.logger.exception("Health check database query failed")
+        return jsonify(status="unavailable"), 503
+    return jsonify(status="ok")
+
+
+@app.route("/ready")
+def readiness():
+    """Check the database tables needed to serve application requests."""
+    try:
+        tables = {row[0] for row in get_db().execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        required = {"users", "profiles", "foods", "food_nutrition", "meals", "meal_items"}
+        missing = sorted(required - tables)
+        if missing:
+            return jsonify(status="not_ready", missing=missing), 503
+    except sqlite3.Error:
+        app.logger.exception("Readiness check failed")
+        return jsonify(status="unavailable"), 503
+    return jsonify(status="ready")
 
 
 @app.route("/login", methods=("GET", "POST"))
@@ -395,17 +433,22 @@ def google_callback():
             return redirect(url_for("login"))
         # Existing schema requires a password hash. This random value is
         # discarded and cannot be used as a password by the user.
-        cursor = db.execute(
-            "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-            (name, email, generate_password_hash(os.urandom(32).hex())),
-        )
-        user_id = cursor.lastrowid
-        db.execute("INSERT INTO profiles (user_id, dietary_preference) VALUES (?, ?)", (user_id, "Vegetarian"))
-        db.execute(
-            "INSERT INTO user_identities (user_id, provider, provider_subject) VALUES (?, 'google', ?)",
-            (user_id, subject),
-        )
-        db.commit()
+        try:
+            with db:
+                cursor = db.execute(
+                    "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+                    (name, email, generate_password_hash(os.urandom(32).hex())),
+                )
+                user_id = cursor.lastrowid
+                db.execute("INSERT INTO profiles (user_id, dietary_preference) VALUES (?, ?)", (user_id, "Vegetarian"))
+                db.execute(
+                    "INSERT INTO user_identities (user_id, provider, provider_subject) VALUES (?, 'google', ?)",
+                    (user_id, subject),
+                )
+        except sqlite3.IntegrityError:
+            app.logger.exception("Could not create Google-authenticated account")
+            flash("That Google account could not be linked. Please sign in and try linking it from your profile.", "error")
+            return redirect(url_for("login"))
         user = db.execute("SELECT id, name FROM users WHERE id = ?", (user_id,)).fetchone()
 
     session.clear()
@@ -665,6 +708,7 @@ def search_usda_foods(query, limit=8):
     if not api_key:
         app.logger.warning("USDA search skipped because USDA_API_KEY is not configured")
         return []
+    query = query[:100]
 
     cache_key = (query.casefold(), limit)
     now = time.monotonic()
@@ -685,20 +729,36 @@ def search_usda_foods(query, limit=8):
         app.logger.exception("USDA food search failed")
         return []
 
+    if not isinstance(data, dict) or not isinstance(data.get("foods", []), list):
+        app.logger.warning("USDA search returned an unexpected response shape")
+        return []
+
     # USDA nutrient IDs are more stable than display names across data types.
     nutrient_ids = {1008: "calories", 2047: "calories", 2048: "calories",
                     1003: "protein", 1005: "carbs", 1004: "fat", 1079: "fiber"}
     results = []
     for food in data.get("foods", []):
+        if not isinstance(food, dict):
+            continue
         nutrients = {}
-        for item in food.get("foodNutrients", []):
+        food_nutrients = food.get("foodNutrients") or []
+        if not isinstance(food_nutrients, list):
+            continue
+        for item in food_nutrients:
+            if not isinstance(item, dict):
+                continue
             nutrient_id = item.get("nutrientId")
             name = nutrient_ids.get(nutrient_id)
             amount = item.get("value", item.get("amount"))
             if name and amount is not None and name not in nutrients:
                 nutrients[name] = amount
         portions = []
-        for measure in food.get("foodMeasures", []) or []:
+        measures = food.get("foodMeasures") or []
+        if not isinstance(measures, list):
+            measures = []
+        for measure in measures:
+            if not isinstance(measure, dict):
+                continue
             grams = measure.get("gramWeight")
             label = measure.get("disseminationText")
             if grams and grams > 0 and label:
@@ -796,11 +856,20 @@ def get_usda_food_nutrition(fdc_id):
         )
         return None
 
+    if not isinstance(food, dict):
+        app.logger.warning("USDA returned an unexpected response for FDC ID %s", fdc_id)
+        return None
+
     nutrient_numbers = {"208": "calories", "957": "calories",
                         "203": "protein", "205": "carbs", "204": "fat",
                         "291": "fiber"}
     nutrients = {}
-    for item in food.get("foodNutrients", []):
+    food_nutrients = food.get("foodNutrients") or []
+    if not isinstance(food_nutrients, list):
+        return None
+    for item in food_nutrients:
+        if not isinstance(item, dict):
+            continue
         nutrient = item.get("nutrient", {})
         name = nutrient_numbers.get(str(nutrient.get("number", "")))
         amount = item.get("amount")
@@ -808,7 +877,12 @@ def get_usda_food_nutrition(fdc_id):
             nutrients.setdefault(name, amount)
 
     portions = []
-    for portion in food.get("foodPortions", []) or []:
+    portions_data = food.get("foodPortions") or []
+    if not isinstance(portions_data, list):
+        portions_data = []
+    for portion in portions_data:
+        if not isinstance(portion, dict):
+            continue
         grams = portion.get("gramWeight")
         label = portion.get("portionDescription") or portion.get("modifier")
         if grams and grams > 0 and label:
@@ -855,6 +929,7 @@ def api_food_search():
     query = request.args.get("q", "").strip()
     if len(query) < 2:
         return jsonify([])
+    query = query[:100]
 
     db = get_db()
     user_id = g.user["id"]
@@ -1332,6 +1407,9 @@ def get_filtered_recipe_suggestions(db, user_id, selected_type=""):
     candidates = db.execute(sql, params).fetchall()
 
     recipes = []
+    recipe_allergen_table = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recipe_allergens'"
+    ).fetchone() is not None
     for recipe in candidates:
         recipe_id = recipe["id"]
         recipe_items = db.execute(
@@ -1351,6 +1429,14 @@ def get_filtered_recipe_suggestions(db, user_id, selected_type=""):
                    WHERE ri.recipe_id = ?""", (recipe_id,),
             ).fetchall()
         }
+        if recipe_allergen_table:
+            recipe_allergens.update(
+                row["name"] for row in db.execute(
+                    """SELECT a.name FROM recipe_allergens ra
+                       JOIN allergens a ON a.id = ra.allergen_id
+                       WHERE ra.recipe_id = ?""", (recipe_id,),
+                ).fetchall()
+            )
         ingredient_labels = []
         calories = protein = carbs = fat = 0.0
         has_nutrition = bool(recipe_items) and all(

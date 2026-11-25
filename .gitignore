@@ -1,11 +1,21 @@
 venv/
+.venv/
 __pycache__/
 *.pyc
 .env
+.env.*
+!.env.example
 *.db
-nutritrack_v2.db.pre_usda_backup
-nutritrack_v2.db.pre_google_login_backup
-schema_v2.sql
+*.db-*
+*.db.*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.bak
+*.backup
+*.dump
 .vscode/
 *.xlsx
+.pytest_cache/
 

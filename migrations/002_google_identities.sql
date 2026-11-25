@@ -1,6 +1,5 @@
--- Additive migration for Google OpenID Connect sign-in.
--- Apply manually to the existing database; do not run schema initialization.
-CREATE TABLE user_identities (
+-- Add Google OpenID Connect identities after the normalized core schema.
+CREATE TABLE IF NOT EXISTS user_identities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     provider TEXT NOT NULL,
@@ -11,4 +10,4 @@ CREATE TABLE user_identities (
     UNIQUE (user_id, provider)
 );
 
-CREATE INDEX idx_user_identities_user_id ON user_identities(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_identities_user_id ON user_identities(user_id);

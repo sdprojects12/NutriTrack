@@ -1,6 +1,5 @@
--- Add USDA meal snapshots without rebuilding the populated local meal tables.
--- Safe to run once against nutritrack_v2.db; existing meals are untouched.
-CREATE TABLE usda_meal_items (
+-- Add USDA meal snapshots after the normalized core schema is created.
+CREATE TABLE IF NOT EXISTS usda_meal_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     meal_id INTEGER NOT NULL,
     fdc_id INTEGER NOT NULL,
@@ -16,5 +15,5 @@ CREATE TABLE usda_meal_items (
     FOREIGN KEY (meal_id) REFERENCES meals(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_usda_meal_items_meal_id ON usda_meal_items(meal_id);
-CREATE INDEX idx_usda_meal_items_fdc_id ON usda_meal_items(fdc_id);
+CREATE INDEX IF NOT EXISTS idx_usda_meal_items_meal_id ON usda_meal_items(meal_id);
+CREATE INDEX IF NOT EXISTS idx_usda_meal_items_fdc_id ON usda_meal_items(fdc_id);

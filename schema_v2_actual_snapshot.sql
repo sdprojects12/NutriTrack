@@ -1,6 +1,5 @@
--- NutriTrack v2 schema snapshot exported from the actual migrated database,
--- including the additive USDA meal-item migration.
--- Reference only. No DROP statements; safe to keep as documentation.
+-- Historical integrated schema snapshot from before migration separation.
+-- Reference only; fresh initialization uses schema.sql plus migrations/.
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE allergens (
@@ -227,6 +226,16 @@ CREATE TABLE recipes (
     updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Explicit curation tags preserve recipe allergy filtering even when a recipe
+-- does not yet have fully structured recipe_items.
+CREATE TABLE recipe_allergens (
+    recipe_id  INTEGER NOT NULL,
+    allergen_id INTEGER NOT NULL,
+    PRIMARY KEY (recipe_id, allergen_id),
+    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+    FOREIGN KEY (allergen_id) REFERENCES allergens(id) ON DELETE RESTRICT
+);
+
 CREATE TABLE user_allergies (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,
@@ -281,5 +290,7 @@ CREATE INDEX idx_meals_user_date ON meals(user_id, logged_date);
 CREATE INDEX idx_recipe_items_food_id   ON recipe_items(food_id);
 
 CREATE INDEX idx_recipe_items_recipe_id ON recipe_items(recipe_id);
+
+CREATE INDEX idx_recipe_allergens_allergen_id ON recipe_allergens(allergen_id);
 
 CREATE INDEX idx_user_allergies_allergen_id  ON user_allergies(allergen_id);

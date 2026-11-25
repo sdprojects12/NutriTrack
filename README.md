@@ -1,301 +1,151 @@
-# NutriTrack
+﻿# NutriTrack
 
-NutriTrack is a Flask-based nutrition tracking application focused on Indian
-foods. Users can create an account, complete a nutrition profile, search food
-databases, log meals, review nutrition totals, and receive rule-based recipe
-suggestions.
-
-The application uses the Indian Nutrient Databank (INDB) for its local food
-catalogue and can optionally search USDA FoodData Central for additional food
-records.
-
-## Features
-
-### Accounts and authentication
-
-- User registration and password login
-- Secure password hashing with Werkzeug
-- Google OpenID Connect sign-in
-- Linking Google sign-in to an existing password account
-- Profile onboarding for new users
-- Session protection and CSRF validation for state-changing requests
-
-### Profile and preferences
-
-- Age, height, and weight information
-- Dietary preferences:
-  - Vegetarian
-  - Non-Vegetarian
-  - Vegan
-  - Eggetarian
-- Nutrition goals:
-  - Lose Weight
-  - Maintain Weight
-  - Gain Weight
-  - Build Muscle
-  - General Health
-- Allergy selection, including a **No Known Allergies** option
-- Dietary and allergy filtering for local foods and recipe suggestions
-
-### Food search and meal logging
-
-- Live search across local INDB foods
-- Optional USDA FoodData Central search
-- Search results with serving information and nutrition values
-- USDA serving-size selection
-- Quantity-based nutrition calculations
-- Meal logging for:
-  - Breakfast
-  - Lunch
-  - Snack
-  - Dinner
-- Meal logging from both local and USDA food sources
-- Server-side validation of submitted foods, quantities, diets, and allergies
-- Nutrition snapshots stored at logging time so historical meals remain stable
-
-### Nutrition tracking
-
-- Daily calorie totals
-- Protein, carbohydrate, and fat totals
-- Fiber information for logged items
-- Per-meal nutrition summaries
-- Detailed meal views
-- Meal deletion
-- Date-filtered meal history
-
-### Recipe suggestions
-
-- Rule-based recipe recommendations
-- Filtering by meal type
-- Dietary preference compatibility filtering
-- Allergy filtering
-- Ingredient and preparation information
-- Nutrition totals when structured ingredient data is available
-- Clear messaging when recipe nutrition is incomplete
-
-### User experience
-
-- Responsive dark-themed interface
-- Mobile, tablet, laptop, and desktop layouts
-- Keyboard focus indicators
-- Accessible form labels and live search status messages
-- Responsive food search and meal logging controls
-- Consistent buttons, cards, form controls, spacing, and allergy-selection states
-
-> Gemini integration is intentionally not part of the current application.
-
-## Technology stack
-
-### Backend
-
-- Python
-- Flask
-- SQLite
-- Jinja2
-- Werkzeug
-- Authlib
-- Requests
-- python-dotenv
-
-### Frontend
-
-- HTML
-- Jinja2 templates
-- CSS
-- Vanilla JavaScript
-
-### Data sources
-
-- Indian Nutrient Databank (local database)
-- USDA FoodData Central API (optional)
-
-## Project structure
-
-```text
-NutriTrack_v2/
-├── app.py                         # Flask application and routes
-├── requirements.txt               # Python dependencies
-├── nutritrack_v2.db              # Populated application database
-├── schema.sql                     # Original schema reference
-├── schema_v2.sql                  # Schema reference
-├── schema_v2_actual.sql           # Snapshot of the migrated schema
-├── migrations/
-│   ├── 001_usda_meal_items.sql    # USDA meal snapshot table
-│   └── 002_google_identities.sql   # Google identity linking table
-├── scripts/
-│   └── import_indb.py             # INDB import utility
-├── data/
-│   └── Anuvaad_INDB_2024_11.xlsx  # INDB source workbook
-├── static/
-│   └── css/style.css              # Application styles
-└── templates/                     # Jinja2 page templates
-```
+NutriTrack is a Flask nutrition tracker with a normalized SQLite catalogue, optional USDA FoodData Central search, optional Google OpenID Connect, meal history, and rule-based recipe suggestions.
 
 ## Requirements
 
 - Python 3.10 or newer
-- A populated SQLite database
-- Optional: USDA FoodData Central API key
-- Optional: Google OAuth web application credentials
+- The INDB workbook `Anuvaad_INDB_2024_11.xlsx` for creating a fresh catalogue database. The workbook is excluded from Git; obtain and use it according to the Indian Nutrient Databank's distribution terms.
+- Optional USDA FoodData Central API key
+- Optional Google OAuth web client credentials
 
-## Installation
+## Install and run locally
 
-Create and activate a virtual environment:
-
-### Windows PowerShell
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+Copy-Item .env.example .env
 ```
 
-### macOS or Linux
+macOS/Linux:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-```
-
-Install dependencies:
-
-```bash
 python -m pip install -r requirements.txt
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
 ```
 
-## Configuration
-
-Create a local `.env` file in the project root:
-
-```env
-FLASK_SECRET_KEY=replace-with-a-long-random-secret
-FLASK_ENV=development
-FLASK_DEBUG=1
-
-# Optional USDA FoodData Central integration
-USDA_API_KEY=your-usda-api-key
-
-# Optional Google OpenID Connect integration
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
-```
-
-### Configuration notes
-
-- Never commit `.env`, API keys, OAuth secrets, or production secrets.
-- Use a stable, unpredictable `FLASK_SECRET_KEY` outside local development.
-- `FLASK_DEBUG=1` is intended only for local development.
-- In production, serve the application over HTTPS and set `FLASK_ENV=production`.
-- USDA search is unavailable when `USDA_API_KEY` is not configured; local INDB
-  search continues to work.
-
-## Database setup and migrations
-
-NutriTrack is distributed with a populated SQLite database. Do not run schema
-initialization, seed scripts, or destructive database commands against that
-database.
-
-Apply migrations only when the corresponding tables are not already present:
+Set `FLASK_SECRET_KEY` in `.env` to a stable random value. Generate one with:
 
 ```bash
-sqlite3 nutritrack_v2.db < migrations/001_usda_meal_items.sql
-sqlite3 nutritrack_v2.db < migrations/002_google_identities.sql
+python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Before applying a migration:
+`DATABASE_PATH` chooses the database. For a new checkout, initialize into a new path (the command refuses any existing file):
 
-1. Back up `nutritrack_v2.db`.
-2. Check whether the target table already exists.
-3. Apply the migration once.
-4. Verify that existing users and meals are still present.
+```bash
+python -m scripts.init_db --db instance/nutritrack.sqlite3 --workbook data/Anuvaad_INDB_2024_11.xlsx
+```
 
-The migrations are additive. Existing meal records and historical nutrition
-snapshots must not be deleted or rebuilt.
-
-## Google sign-in setup
-
-Google sign-in uses OpenID Connect and requests only the `openid`, `email`, and
-`profile` scopes. It does not access Gmail.
-
-1. Create a Google OAuth web client in Google Cloud Console.
-2. Add the callback URL below as an authorized redirect URI:
-
-   ```text
-   http://127.0.0.1:5000/auth/google/callback
-   ```
-
-3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`.
-4. Apply `migrations/002_google_identities.sql` if the table is not present.
-5. Start the application and test Google sign-in.
-
-An existing password account must be signed into before Google can be linked
-from the profile page. This prevents accounts from being merged solely because
-their email addresses match.
-
-## Running the application
-
-From the project root:
+Set `DATABASE_PATH` to that same path in `.env`, then run:
 
 ```bash
 python app.py
 ```
 
-Open the local application at:
+Open http://127.0.0.1:5000. If you already have the local populated `nutritrack_v2.db`, it remains the default when `DATABASE_PATH` is unset. Initialization and tests never target it unless you explicitly pass that exact path; the initializer refuses to proceed when the file exists.
 
-```text
-http://127.0.0.1:5000
-```
+## Environment variables
 
-The application uses `nutritrack_v2.db` by default. It does not initialize or
-seed the database automatically during startup.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `FLASK_SECRET_KEY` | Production | Stable secret for signing sessions. There is no generated production fallback. |
+| `APP_ENV` | Production | Set to `production` to enable secure session cookies and require the secret. |
+| `DATABASE_PATH` | No | SQLite file location; defaults to `nutritrack_v2.db` beside `app.py`. Use persistent storage in deployment. |
+| `USDA_API_KEY` | No | Enables USDA FoodData Central search and live nutrient verification. |
+| `GOOGLE_CLIENT_ID` | No | Enables Google OpenID Connect when paired with its secret and the identity table. |
+| `GOOGLE_CLIENT_SECRET` | No | Google OAuth client secret. Keep server-side only. |
+| `TRUST_PROXY` | No | Set to `1` only behind exactly one trusted reverse proxy that sets forwarded headers. |
 
-## Security behavior
+USDA search degrades to an empty result when the key is absent, the service times out, or a response is malformed. Local INDB search remains available. Google callback URLs must use the deployment's HTTPS host and be registered in Google Cloud Console.
 
-The application includes:
+## Database safety and initialization
 
-- Parameterized SQLite queries
-- Password hashing and verification
-- CSRF tokens for POST, PUT, PATCH, and DELETE requests
-- HTTP-only session cookies
-- SameSite session cookies
-- Secure cookies in production
-- Security response headers
-- No-store caching for non-static pages
-- Ownership checks for meals and user data
-- Server-side validation for profile and meal inputs
-- Dietary and allergy verification before meal logging
-- Historical nutrition snapshots for logged meals
+- `schema.sql` is the sole canonical normalized **core schema** for new databases. It intentionally excludes tables owned by incremental migrations.
+- `scripts/init_db.py` creates a **new** database from `schema.sql`, applies every numbered migration in order inside transactions, records applied versions in `schema_migrations`, then imports INDB foods, allergy tags, and curated recipes. It refuses every existing destination.
+- Migrations `001_usda_meal_items.sql`, `002_google_identities.sql`, and `003_recipe_allergens.sql` are all required to bring the fresh core schema to the application's current schema. They use `IF NOT EXISTS`, and the migration ledger prevents duplicate application.
+- `schema_legacy_v1.sql`, `schema_v2_legacy_destructive.sql`, and `schema_v2_actual_snapshot.sql` are preserved historical references. The first two contain destructive rebuild statements; none are used by the application or initializer.
+- Curated allergies and recipes live in `scripts/reference_data.py`. There is no legacy seeder that writes to a hardcoded database.
+- The existing `nutritrack.db`, `nutritrack_v2.db`, and all database backups are local-only and ignored by Git. Initialization does not inspect or update them.
+- INDB diet/allergy classification is inferred from food names. It is useful for filtering, not a guarantee of safety for severe allergies. USDA allergy checks also depend on source declarations.
 
-## Testing and validation
+## Tests
 
-Run Python compilation checks:
+Install the test dependencies in the active virtual environment from the project root:
 
 ```bash
-python -m compileall -q app.py scripts seed_data.py
+python -m pip install -r requirements-dev.txt
 ```
 
-The application can also be validated through Flask's test client for:
+This file includes the application dependencies plus pytest. Run the suite with:
 
-- Registration and login
-- CSRF rejection
-- Profile completion
-- Protected route access
-- Local food search
-- USDA search behavior when configured
-- Meal logging and dietary validation
-- Meal history and suggestions
-- Logout
+```bash
+python -m pytest -v
+```
 
-## Development safety
+Tests create and destroy separate temporary SQLite databases. They cover signup/login, profile validation, local and USDA search behavior, allergy filtering, meal quantities and totals, history, ownership, health/readiness, and fresh initialization. The existing project databases are not opened by the test suite.
 
-- Do not reset or recreate the populated database.
-- Do not run `seed_data.py` against the submission database.
-- Do not modify existing migration history.
-- Do not commit credentials or secrets.
-- Preserve historical meal nutrition snapshots.
-- Keep external API keys server-side; never expose them in frontend code.
+## Production server
 
-## License and data attribution
+On a Linux host, install dependencies and run Gunicorn with one worker when using SQLite:
 
-This project is intended for educational use. Review the terms and attribution
-requirements of the Indian Nutrient Databank and USDA FoodData Central before
-redistributing datasets or deploying the application publicly.
+```bash
+gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 30 app:app
+```
+
+SQLite supports multiple readers but is not a good shared-write database across several application workers or replicas. Keep one process/worker and place the DB on a persistent local disk. Back up that deployment DB separately. Do not use an ephemeral filesystem for SQLite: restarts and redeploys can erase it.
+
+`/health` checks that the app can query its configured database. `/ready` checks that core application tables are present. Neither endpoint initializes or changes the database.
+
+## Free hosting assessment
+
+As of November 25, 2026, there is no free platform I can recommend as durable production for the current SQLite-backed app with all integrations enabled. Render's free web service has an ephemeral filesystem, so SQLite changes disappear on restart/redeploy/sleep; its free Postgres also expires after 30 days. [Render's free-plan documentation](https://render.com/docs/free) describes those limits.
+
+For a no-cost **demo**, PythonAnywhere is the simplest fit because its account files persist and it supports Flask WSGI apps. Its current free account has only 100 CPU seconds, 512 MiB storage, one web worker, and a one-month web-app expiry; outbound requests are restricted to an allowlist. USDA and Google endpoints may need to be allowlisted, and free access can be suspended/expire. [PythonAnywhere free account limits](https://help.pythonanywhere.com/pages/FreeAccountsFeatures/), [outbound allowlist policy](https://help.pythonanywhere.com/pages/RequestingAllowlistAdditions). Treat this as a demo, not a reliable public production service.
+
+### PythonAnywhere demo deployment outline
+
+1. Create a PythonAnywhere Beginner account and clone this repository over HTTPS into your home directory.
+2. Create a virtual environment, install `requirements.txt`, and upload the INDB workbook separately if permitted by its data terms.
+3. In a Bash console, initialize a new database in your home directory, for example `python -m scripts.init_db --db /home/USERNAME/nutritrack.sqlite3 --workbook /home/USERNAME/Anuvaad_INDB_2024_11.xlsx`. Confirm the target does not already exist.
+4. In the Web tab, create a manual Flask app using the same Python version/virtual environment. Update the WSGI file to add the project directory to `sys.path` and import `app` from the project.
+5. Set `DATABASE_PATH`, `APP_ENV=production`, and a stable `FLASK_SECRET_KEY` in the WSGI startup configuration. Set USDA/Google credentials only if desired. Never upload a local `.env` file or any project DB/backup.
+6. Set the Google authorized callback to `https://USERNAME.pythonanywhere.com/auth/google/callback`. Request allowlisting for documented USDA/Google endpoints as needed; otherwise leave those optional integrations disabled.
+7. Reload the web app and check `/health`, `/ready`, registration, profile setup, search, and meal logging. Confirm the DB path is under persistent home storage and arrange your own backups.
+
+For continuous public use, budget for a host with persistent storage and unrestricted outbound HTTPS (or explicitly choose and operate a separate managed DB). Do not select a free ephemeral web service while keeping SQLite as the persistent store.
+
+## Security and operational notes
+
+- Parameterized SQL, password hashing, CSRF validation on state-changing requests, ownership checks, and private/no-store response headers are enabled.
+- Production cookies are `Secure`, `HttpOnly`, and `SameSite=Lax` when `APP_ENV=production`.
+- `TRUST_PROXY=1` trusts one proxy hop. Do not enable it when requests can bypass that proxy.
+- USDA requests have explicit timeouts; API keys never go to browser JavaScript.
+- Keep `.env`, credentials, database files, backups, and deployment secrets out of Git.
+- Review INDB attribution/licensing before redistributing its workbook or derived catalogue publicly.
+
+## Project layout
+
+```text
+app.py
+schema.sql                         # canonical normalized core schema
+schema_legacy_v1.sql               # historical denormalized schema
+schema_v2_legacy_destructive.sql   # historical DROP/CREATE rebuild
+schema_v2_actual_snapshot.sql      # historical integrated schema snapshot
+migrations/                        # numbered additive schema changes
+scripts/init_db.py                 # safe fresh-database workflow
+scripts/import_indb.py             # workbook importer
+scripts/reference_data.py          # allergy and recipe seed records
+data/                              # source INDB workbook (supply separately)
+templates/                         # Jinja pages
+static/                             # CSS and frontend assets
+tests/                              # isolated temporary-database tests
+README.md
+.env.example
+```
