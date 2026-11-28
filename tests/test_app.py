@@ -135,6 +135,40 @@ class NutriTrackTests(unittest.TestCase):
         else:
             self.skipTest("Google OAuth credentials are not configured")
 
+    def test_usda_search_filters_matching_and_unverifiable_allergens(self):
+        self.signup_and_login()
+        self.complete_profile([str(self.allergy_id("Peanut"))], diet="Non-Vegetarian")
+        mocked_foods = [
+            {"fdc_id": 1, "name": "Peanut butter", "allergens": "peanuts", "ingredients": "peanuts, oil"},
+            {"fdc_id": 2, "name": "Apple", "allergens": "", "ingredients": "apple, water"},
+            {"fdc_id": 3, "name": "Packaged snack", "allergens": None, "ingredients": None},
+            {"fdc_id": 4, "name": "Plain rice", "allergens": "", "ingredients": "rice, water"},
+        ]
+        with patch.object(webapp, "search_usda_foods", return_value=mocked_foods):
+            response = self.client.get("/api/foods/search?source=usda&q=food")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([food["fdc_id"] for food in response.json], [2, 4])
+        self.assertTrue(all(food["allergy_check"] for food in response.json))
+        self.assertIn("verify the product label", response.json[0]["allergy_note"])
+
+    def test_usda_allergy_scan_uses_ingredients_and_word_boundaries(self):
+        self.assertFalse(webapp.usda_allergens_clear(
+            {"allergens": "", "ingredients": "roasted peanuts and salt"}, ["Peanut"]
+        ))
+        self.assertTrue(webapp.usda_allergens_clear(
+            {"allergens": "", "ingredients": "eggplant, rice and salt"}, ["Egg"]
+        ))
+        self.assertFalse(webapp.usda_allergens_clear(
+            {"allergens": "Contains: milk", "ingredients": "water"}, ["Dairy"]
+        ))
+        self.assertFalse(webapp.usda_allergens_clear(
+            {"allergens": None, "ingredients": None}, ["Peanut"]
+        ))
+        self.assertTrue(webapp.usda_allergens_clear(
+            {"allergens": None, "ingredients": None}, []
+        ))
+
     def test_usda_failure_returns_empty_results(self):
         self.signup_and_login()
         self.complete_profile()
