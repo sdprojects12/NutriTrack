@@ -925,16 +925,16 @@ def usda_allergens_clear(food, user_allergies):
     import re
 
     aliases = {
-        "peanut": ("peanut",),
-        "tree nuts": ("tree nuts?", "almond", "walnut", "cashew", "pecan",
-                      "pistachio", "hazelnut", "macadamia", "brazil nuts?"),
+        "peanut": ("peanuts?",),
+        "tree nuts": ("tree nuts?", "almonds?", "walnuts?", "cashews?", "pecans?",
+                      "pistachios?", "hazelnuts?", "macadamias?", "brazil nuts?"),
         "dairy": ("milk", "dairy", "whey", "casein", "lactose", "butter",
-                  "cheese", "cream", "yogurt", "yoghurt"),
-        "gluten": ("gluten", "wheat", "barley", "rye", "triticale"),
-        "soy": ("soy", "soya", "soybean"),
+                  "cheese", "cream", "yogurts?", "yoghurts?"),
+        "gluten": ("gluten", "wheats?", "barleys?", "ryes?", "triticale"),
+        "soy": ("soya?", "soybeans?"),
         "egg": ("eggs?", "albumin", "ovalbumin", "mayonnaise"),
-        "sesame": ("sesame", "tahini"),
-        "mustard": ("mustard",),
+        "sesame": ("sesames?", "tahini"),
+        "mustard": ("mustards?",),
     }
     text = available_text.casefold()
     for allergy in user_allergies:
@@ -986,7 +986,7 @@ def api_food_search():
                 continue
 
             food["allergy_note"] = (
-                "No selected allergens detected in USDA text; verify the product label"
+                "No selected allergens detected in available USDA text; verify the product label"
                 if user_allergies else "Check the product label for allergen information"
             )
             filtered_results.append(food)

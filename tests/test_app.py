@@ -169,6 +169,50 @@ class NutriTrackTests(unittest.TestCase):
             {"allergens": None, "ingredients": None}, []
         ))
 
+    def test_usda_allergy_scan_covers_plural_and_common_allergen_terms(self):
+        cases = [
+            ("Peanut", "peanuts"),
+            ("Tree Nuts", "almonds, walnuts, cashews, pecans, pistachios, hazelnuts, macadamias"),
+            ("Dairy", "milk"),
+            ("Egg", "eggs"),
+            ("Soy", "soybeans"),
+            ("Gluten", "wheat, barley, rye"),
+            ("Sesame", "sesame seeds"),
+            ("Mustard", "mustard seed"),
+        ]
+        for allergy, ingredients in cases:
+            with self.subTest(allergy=allergy, ingredients=ingredients):
+                self.assertFalse(webapp.usda_allergens_clear(
+                    {"allergens": "", "ingredients": ingredients}, [allergy]
+                ))
+        self.assertTrue(webapp.usda_allergens_clear(
+            {"allergens": "", "ingredients": "eggplant, soy sauce flavoring"}, ["Egg"]
+        ))
+        self.assertFalse(webapp.usda_allergens_clear(
+            {"allergens": "contains almond", "ingredients": "rice"}, ["Peanut", "Tree Nuts"]
+        ))
+
+    def test_usda_meal_submission_rechecks_current_allergy_settings(self):
+        self.signup_and_login()
+        self.complete_profile([str(self.allergy_id("Peanut"))], diet="Non-Vegetarian")
+        token = self.token("/meals/new")
+        mocked_detail = {
+            "fdc_id": 123, "name": "Peanut snack", "data_type": "Branded",
+            "calories": 100, "protein": 2, "carbs": 10, "fat": 5, "fiber": 1,
+            "portions": [{"label": "100 g", "grams": 100}],
+            "ingredients": "roasted peanuts", "allergens": "",
+        }
+        with patch.object(webapp, "get_usda_food_nutrition", return_value=mocked_detail):
+            response = self.client.post("/meals/new", data={
+                "_csrf_token": token, "meal_type": "Lunch", "fdc_id": "123",
+                "usda_quantity": "1", "usda_grams": "100", "usda_serving_label": "100 g",
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"could not be verified", response.data)
+        import sqlite3
+        with sqlite3.connect(self.db_path) as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM meals").fetchone()[0], 0)
+
     def test_usda_failure_returns_empty_results(self):
         self.signup_and_login()
         self.complete_profile()
