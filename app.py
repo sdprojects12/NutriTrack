@@ -903,25 +903,46 @@ def get_usda_food_nutrition(fdc_id):
 
 
 def usda_allergens_clear(food, user_allergies):
-    """Fail closed when an external record cannot be checked for allergies."""
+    """Return True only when available USDA text has no selected allergen.
+
+    USDA search records are not guaranteed to include a complete allergen
+    declaration. When a user has saved allergies, missing ingredient and
+    allergen text is treated as unverifiable and therefore not safe to show.
+    This text scan is a screening aid, not a guarantee against cross-contact.
+    """
     if not user_allergies:
         return True
-    declaration = food.get("allergens")
-    if not declaration:
+
+    allergen_text = food.get("allergens")
+    ingredient_text = food.get("ingredients")
+    available_text = " ".join(
+        str(value) for value in (allergen_text, ingredient_text)
+        if isinstance(value, str) and value.strip()
+    )
+    if not available_text:
         return False
-    text = str(declaration).casefold()
+
+    import re
+
     aliases = {
         "peanut": ("peanut",),
-        "tree nuts": ("tree nut", "almond", "walnut", "cashew", "pecan", "pistachio", "hazelnut"),
-        "dairy": ("milk", "dairy", "whey", "casein", "lactose"),
-        "gluten": ("gluten", "wheat", "barley", "rye"),
-        "soy": ("soy", "soya"),
-        "egg": ("egg",),
-        "sesame": ("sesame",),
+        "tree nuts": ("tree nuts?", "almond", "walnut", "cashew", "pecan",
+                      "pistachio", "hazelnut", "macadamia", "brazil nuts?"),
+        "dairy": ("milk", "dairy", "whey", "casein", "lactose", "butter",
+                  "cheese", "cream", "yogurt", "yoghurt"),
+        "gluten": ("gluten", "wheat", "barley", "rye", "triticale"),
+        "soy": ("soy", "soya", "soybean"),
+        "egg": ("eggs?", "albumin", "ovalbumin", "mayonnaise"),
+        "sesame": ("sesame", "tahini"),
         "mustard": ("mustard",),
     }
-    return not any(alias in text for allergy in user_allergies
-                   for alias in aliases.get(allergy.casefold(), (allergy.casefold(),)))
+    text = available_text.casefold()
+    for allergy in user_allergies:
+        terms = aliases.get(allergy.casefold(), (re.escape(allergy.casefold()),))
+        for term in terms:
+            if re.search(r"(?<![a-z])" + term + r"(?![a-z])", text):
+                return False
+    return True
 
 @app.route("/api/foods/search")
 @login_required
@@ -953,18 +974,23 @@ def api_food_search():
 
     if request.args.get("source") == "usda":
         usda_results = search_usda_foods(query, limit=6)
-        usda_results = [
-            food for food in usda_results
-            if usda_food_matches_diet(food.get("name", ""), dietary_preference)
-        ]
+        filtered_results = []
         for food in usda_results:
+            if not usda_food_matches_diet(food.get("name", ""), dietary_preference):
+                continue
+
             food["allergy_check"] = usda_allergens_clear(food, user_allergies)
+            if user_allergies and not food["allergy_check"]:
+                # Do not show foods with a detected allergen or insufficient
+                # USDA text to screen the user's saved allergies.
+                continue
+
             food["allergy_note"] = (
-                "Allergen declaration available" if food["allergy_check"] and user_allergies
-                else "USDA does not provide a declaration for this record; allergen safety cannot be confirmed"
-                if user_allergies else "Check product label for allergens"
+                "No selected allergens detected in USDA text; verify the product label"
+                if user_allergies else "Check the product label for allergen information"
             )
-        return jsonify(usda_results)
+            filtered_results.append(food)
+        return jsonify(filtered_results)
 
     # Food types compatible with each dietary preference.
     diet_compatibility = {
